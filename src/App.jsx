@@ -5,13 +5,33 @@ import {
   Sparkles, ChevronRight, PieChart, Layers, Search, Trash2, Filter
 } from 'lucide-react';
 
+// Получение локальной даты в формате YYYY-MM-DD (не зависит от UTC)
+const getLocalDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Безопасная загрузка из LocalStorage с защитой от поврежденного JSON
+const loadFromStorage = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch (err) {
+    console.error(`Failed to load ${key} from localStorage:`, err);
+    return fallback;
+  }
+};
+
 // Начальные демонстрационные данные
 const INITIAL_TRANSACTIONS = [
   { id: '1', title: 'Супермаркет (ВкусВилл)', amount: 3450, type: 'expense', category: 'Продукты', account: 'shared', author: 'husband', date: '2026-10-23' },
-  { id: '2', title: 'Кофейня и выпечка', amount: 820, type: 'expense', category: 'Кафе', account: 'shared', author: 'wife', date: '2026-10-23' },
+  { id: '2', title: 'Кофейня и выпечка', amount: 820, type: 'expense', category: 'Кафе и еда вне дома', account: 'shared', author: 'wife', date: '2026-10-23' },
   { id: '3', title: 'Аванс по дизайну', amount: 95000, type: 'income', category: 'Подработка', account: 'shared', author: 'husband', date: '2026-10-20' },
   { id: '4', title: 'Оплата коммуналки', amount: 6200, type: 'expense', category: 'Дом и ЖКУ', account: 'shared', author: 'wife', date: '2026-10-18' },
-  { id: '5', title: 'Пополнение цели "Отпуск"', amount: 15000, type: 'expense', category: 'Накопления', account: 'shared', author: 'husband', date: '2026-10-15' },
+  { id: '5', title: 'Пополнение цели "Отпуск"', amount: 15000, type: 'expense', category: 'Накопления', account: 'shared', author: 'husband', date: '2026-10-15', goalId: 'g1' },
 ];
 
 const INITIAL_GOALS = [
@@ -49,20 +69,28 @@ const GOAL_COLOR_PRESETS = [
 
 const QUICK_GOAL_ICONS = ['🎯', '🏔️', '🛡️', '🖥️', '🚗', '🏖️', '🏡', '💍', '👶', '🎓'];
 
+const CATEGORY_ALIASES = {
+  'работа': { id: 'freelance', name: 'Подработка', icon: '💻', color: 'bg-blue-50 text-blue-700' },
+  'дом': { id: 'home', name: 'Дом и ЖКУ', icon: '🏠', color: 'bg-blue-50 text-blue-700' },
+  'кафе': { id: 'cafe', name: 'Кафе и еда вне дома', icon: '☕', color: 'bg-amber-50 text-amber-700' },
+  'транспорт': { id: 'transport', name: 'Транспорт и авто', icon: '🚗', color: 'bg-purple-50 text-purple-700' },
+  'развлечения': { id: 'leisure', name: 'Развлечения и кино', icon: '🎬', color: 'bg-pink-50 text-pink-700' },
+  'здоровье': { id: 'health', name: 'Здоровье и спорт', icon: '🌿', color: 'bg-teal-50 text-teal-700' },
+  'шопинг': { id: 'shopping', name: 'Шопинг и вещи', icon: '🛍️', color: 'bg-indigo-50 text-indigo-700' },
+};
+
 const getCategoryMeta = (categoryName, type, customCategories = []) => {
+  const normName = (categoryName || '').trim().toLowerCase();
   const all = [...DEFAULT_EXPENSE_CATEGORIES, ...DEFAULT_INCOME_CATEGORIES, ...customCategories];
-  const found = all.find(c => c.name.toLowerCase() === (categoryName || '').toLowerCase());
+  const found = all.find(c => c.name.toLowerCase() === normName);
   if (found) return found;
 
-  // Алиасы для старых записей
-  if (categoryName === 'Работа') {
-    return { id: 'freelance', name: 'Подработка', icon: '💻', color: 'bg-blue-50 text-blue-700' };
-  }
-  if (categoryName === 'Дом') {
-    return DEFAULT_EXPENSE_CATEGORIES.find(c => c.id === 'home');
+  // Алиасы для старых или сокращенных записей
+  if (CATEGORY_ALIASES[normName]) {
+    return CATEGORY_ALIASES[normName];
   }
 
-  // Фоллбэки в зависимости от типа
+  // Фоллбэки в зависимости от типа транзакции
   if (type === 'income') {
     return { id: 'custom_inc', name: categoryName || 'Доход', icon: '💵', color: 'bg-emerald-50 text-emerald-700' };
   }
@@ -74,18 +102,15 @@ export default function FamilyBudgetApp() {
   const [familyCode, setFamilyCode] = useState('family-home');
 
   const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('family_budget_txs');
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+    return loadFromStorage('family_budget_txs', INITIAL_TRANSACTIONS);
   });
 
   const [goals, setGoals] = useState(() => {
-    const saved = localStorage.getItem('family_budget_goals');
-    return saved ? JSON.parse(saved) : INITIAL_GOALS;
+    return loadFromStorage('family_budget_goals', INITIAL_GOALS);
   });
 
   const [customCategories, setCustomCategories] = useState(() => {
-    const saved = localStorage.getItem('family_budget_custom_categories');
-    return saved ? JSON.parse(saved) : [];
+    return loadFromStorage('family_budget_custom_categories', []);
   });
 
   // Модальные окна
@@ -99,7 +124,7 @@ export default function FamilyBudgetApp() {
   const [txType, setTxType] = useState('expense'); // 'expense' | 'income'
   const [selectedCategory, setSelectedCategory] = useState(DEFAULT_EXPENSE_CATEGORIES[0].name);
   const [selectedAccount, setSelectedAccount] = useState('shared'); // 'shared' | 'personal'
-  const [txDate, setTxDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [txDate, setTxDate] = useState(getLocalDateString);
 
   // Инлайн добавление категории
   const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
@@ -136,12 +161,25 @@ export default function FamilyBudgetApp() {
     localStorage.setItem('family_budget_custom_categories', JSON.stringify(customCategories));
   }, [customCategories]);
 
+  // Закрытие модальных окон по Escape для доступности (WCAG AA)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsAddModalOpen(false);
+        setIsGoalModalOpen(false);
+        setIsNewGoalModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Список категорий для активного типа транзакции (расход или доход)
   const activeCategories = useMemo(() => {
     if (txType === 'income') {
       return [...DEFAULT_INCOME_CATEGORIES, ...customCategories.filter(c => c.type === 'income')];
     }
-    return [...DEFAULT_EXPENSE_CATEGORIES, ...customCategories.filter(c => c.type === 'expense')];
+    return [...DEFAULT_EXPENSE_CATEGORIES, ...customCategories.filter(c => c.type !== 'income')];
   }, [txType, customCategories]);
 
   // Переключение типа транзакции с обновлением категории по умолчанию
@@ -154,7 +192,7 @@ export default function FamilyBudgetApp() {
         setSelectedCategory(DEFAULT_INCOME_CATEGORIES[0].name);
       }
     } else {
-      const isAlreadyExpense = [...DEFAULT_EXPENSE_CATEGORIES, ...customCategories.filter(c => c.type === 'expense')].some(c => c.name === selectedCategory);
+      const isAlreadyExpense = [...DEFAULT_EXPENSE_CATEGORIES, ...customCategories.filter(c => c.type !== 'income')].some(c => c.name === selectedCategory);
       if (!isAlreadyExpense) {
         setSelectedCategory(DEFAULT_EXPENSE_CATEGORIES[0].name);
       }
@@ -164,8 +202,18 @@ export default function FamilyBudgetApp() {
   // Создание пользовательской категории
   const handleCreateCustomCategory = (e) => {
     e?.preventDefault();
-    if (!newCatName.trim()) return;
     const trimmed = newCatName.trim();
+    if (!trimmed) return;
+
+    // Предотвращение дубликатов категорий
+    const exists = activeCategories.some(c => c.name.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      setSelectedCategory(trimmed);
+      setNewCatName('');
+      setIsAddingCustomCategory(false);
+      return;
+    }
+
     const newCat = {
       id: 'cat_' + Date.now(),
       name: trimmed,
@@ -177,6 +225,20 @@ export default function FamilyBudgetApp() {
     setSelectedCategory(trimmed);
     setNewCatName('');
     setIsAddingCustomCategory(false);
+  };
+
+  // Удаление пользовательской категории
+  const handleDeleteCustomCategory = (e, catId) => {
+    e?.stopPropagation();
+    const cat = customCategories.find(c => c.id === catId);
+    if (!cat) return;
+    const confirmed = window.confirm(`Удалить категорию «${cat.name}»?`);
+    if (confirmed) {
+      setCustomCategories(prev => prev.filter(c => c.id !== catId));
+      if (selectedCategory === cat.name) {
+        setSelectedCategory(txType === 'income' ? DEFAULT_INCOME_CATEGORIES[0].name : DEFAULT_EXPENSE_CATEGORIES[0].name);
+      }
+    }
   };
 
   // Финансовая аналитика
@@ -223,27 +285,35 @@ export default function FamilyBudgetApp() {
       category: selectedCategory,
       account: selectedAccount,
       author: currentUser,
-      date: txDate || new Date().toISOString().split('T')[0]
+      date: txDate || getLocalDateString(),
     };
 
     setTransactions([newTx, ...transactions]);
     setAmount('');
     setTxTitle('');
-    setTxDate(new Date().toISOString().split('T')[0]);
+    setTxDate(getLocalDateString());
     setIsAddModalOpen(false);
   };
 
-  // Удаление транзакции
+  // Удаление транзакции с пересчетом баланса и откатом копилки (если операция была пополнением)
   const handleDeleteTransaction = (id) => {
     const tx = transactions.find(t => t.id === id);
     if (!tx) return;
     const confirmed = window.confirm(`Удалить операцию «${tx.title}» на ${Number(tx.amount).toLocaleString('ru-RU')} ₽?`);
     if (confirmed) {
       setTransactions(prev => prev.filter(t => t.id !== id));
+      if (tx.goalId) {
+        setGoals(prev => prev.map(g => {
+          if (g.id === tx.goalId) {
+            return { ...g, current: Math.max(0, (Number(g.current) || 0) - (Number(tx.amount) || 0)) };
+          }
+          return g;
+        }));
+      }
     }
   };
 
-  // Пополнение цели
+  // Пополнение цели с привязкой goalId для точного бухучета
   const handleContributeGoal = (e) => {
     e?.preventDefault();
     const num = parseFloat(goalAmount);
@@ -254,12 +324,12 @@ export default function FamilyBudgetApp() {
 
     setGoals(goals.map(g => {
       if (g.id === selectedGoalId) {
-        return { ...g, current: Math.min(g.target, (Number(g.current) || 0) + num) };
+        return { ...g, current: (Number(g.current) || 0) + num };
       }
       return g;
     }));
 
-    // Создаем операцию расхода в копилку
+    // Создаем операцию расхода в копилку с привязкой goalId
     const newTx = {
       id: Date.now().toString(),
       title: `В копилку: ${targetGoal.title}`,
@@ -268,7 +338,8 @@ export default function FamilyBudgetApp() {
       category: 'Накопления',
       account: 'shared',
       author: currentUser,
-      date: new Date().toISOString().split('T')[0]
+      date: getLocalDateString(),
+      goalId: targetGoal.id,
     };
 
     setTransactions([newTx, ...transactions]);
@@ -297,6 +368,20 @@ export default function FamilyBudgetApp() {
     setNewGoalTarget('');
     setNewGoalCurrent('0');
     setIsNewGoalModalOpen(false);
+  };
+
+  // Удаление цели-копилки
+  const handleDeleteGoal = (e, goalId) => {
+    e?.stopPropagation();
+    const g = goals.find(item => item.id === goalId);
+    if (!g) return;
+    const confirmed = window.confirm(`Удалить цель «${g.title}»?`);
+    if (confirmed) {
+      setGoals(prev => prev.filter(item => item.id !== goalId));
+      if (selectedGoalId === goalId) {
+        setSelectedGoalId(null);
+      }
+    }
   };
 
   // Фильтрация истории операций
@@ -384,14 +469,14 @@ export default function FamilyBudgetApp() {
               <Wallet className="w-4 h-4 text-stone-600" />
             </div>
             <div className="my-2 sm:my-3">
-              <div className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-stone-900">
+              <div className="text-lg sm:text-2xl lg:text-3xl font-bold tracking-tight text-stone-900 truncate" title={`${stats.balance.toLocaleString('ru-RU')} ₽`}>
                 {stats.balance.toLocaleString('ru-RU')} ₽
               </div>
               <div className="text-[11px] sm:text-xs text-stone-500 mt-1">Доходы минус траты</div>
             </div>
             <div className="pt-2 sm:pt-3 border-t border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] sm:text-xs">
-              <span className="text-emerald-700 font-medium">+{stats.income.toLocaleString('ru-RU')} ₽</span>
-              <span className="text-rose-600 font-medium">-{stats.expense.toLocaleString('ru-RU')} ₽</span>
+              <span className="text-emerald-700 font-medium truncate">+{stats.income.toLocaleString('ru-RU')} ₽</span>
+              <span className="text-rose-600 font-medium truncate">-{stats.expense.toLocaleString('ru-RU')} ₽</span>
             </div>
           </div>
 
@@ -402,7 +487,7 @@ export default function FamilyBudgetApp() {
               <Sparkles className="w-4 h-4 text-amber-400" />
             </div>
             <div className="my-2 sm:my-3">
-              <div className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-amber-300">
+              <div className="text-lg sm:text-2xl lg:text-3xl font-bold tracking-tight text-amber-300 truncate" title={`${stats.dailyAvailable.toLocaleString('ru-RU')} ₽`}>
                 {stats.dailyAvailable.toLocaleString('ru-RU')} ₽
               </div>
               <div className="text-[11px] sm:text-xs text-stone-300 mt-1">На {stats.daysLeft} дн. месяца</div>
@@ -420,16 +505,23 @@ export default function FamilyBudgetApp() {
               <PiggyBank className="w-4 h-4 text-violet-600" />
             </div>
             <div className="my-2 sm:my-3">
-              <div className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-violet-700">
+              <div className="text-lg sm:text-2xl lg:text-3xl font-bold tracking-tight text-violet-700 truncate" title={`${stats.totalSavings.toLocaleString('ru-RU')} ₽`}>
                 {stats.totalSavings.toLocaleString('ru-RU')} ₽
               </div>
               <div className="text-[11px] sm:text-xs text-stone-500 mt-1">По {goals.length} {goals.length === 1 ? 'цели' : 'целям'}</div>
             </div>
             <button 
-              onClick={() => { setSelectedGoalId(goals[0]?.id); setIsGoalModalOpen(true); }}
+              onClick={() => { 
+                if (goals.length > 0) {
+                  setSelectedGoalId(goals[0]?.id); 
+                  setIsGoalModalOpen(true); 
+                } else {
+                  setIsNewGoalModalOpen(true);
+                }
+              }}
               className="text-[11px] sm:text-xs font-medium text-stone-700 hover:text-stone-900 flex items-center gap-1 pt-2 sm:pt-3 border-t border-stone-100"
             >
-              <span>Пополнить</span>
+              <span>{goals.length > 0 ? 'Пополнить' : '+ Создать'}</span>
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -441,9 +533,9 @@ export default function FamilyBudgetApp() {
               <User className="w-4 h-4 text-stone-600" />
             </div>
             <div className="space-y-1.5 my-2">
-              <div className="flex items-center justify-between text-[11px] sm:text-xs">
-                <span className="flex items-center gap-1 text-stone-700">🧔🏻‍♂️ Муж</span>
-                <span className="font-semibold text-stone-900">{stats.husbandSpent.toLocaleString('ru-RU')} ₽</span>
+              <div className="flex items-center justify-between text-[11px] sm:text-xs gap-1">
+                <span className="flex items-center gap-1 text-stone-700 truncate">🧔🏻‍♂️ Муж</span>
+                <span className="font-semibold text-stone-900 shrink-0">{stats.husbandSpent.toLocaleString('ru-RU')} ₽</span>
               </div>
               <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
                 <div 
@@ -451,9 +543,9 @@ export default function FamilyBudgetApp() {
                   style={{ width: `${stats.expense ? (stats.husbandSpent / stats.expense) * 100 : 50}%` }}
                 ></div>
               </div>
-              <div className="flex items-center justify-between text-[11px] sm:text-xs pt-0.5">
-                <span className="flex items-center gap-1 text-stone-700">👩🏼 Жена</span>
-                <span className="font-semibold text-stone-900">{stats.wifeSpent.toLocaleString('ru-RU')} ₽</span>
+              <div className="flex items-center justify-between text-[11px] sm:text-xs pt-0.5 gap-1">
+                <span className="flex items-center gap-1 text-stone-700 truncate">👩🏼 Жена</span>
+                <span className="font-semibold text-stone-900 shrink-0">{stats.wifeSpent.toLocaleString('ru-RU')} ₽</span>
               </div>
             </div>
             <div className="text-[10px] sm:text-[11px] text-stone-500 pt-2 border-t border-stone-100 truncate">
@@ -487,49 +579,78 @@ export default function FamilyBudgetApp() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {goals.map(goal => {
-              const percent = Math.min(100, Math.round((goal.current / goal.target) * 100));
-              return (
-                <div 
-                  key={goal.id} 
-                  onClick={() => { setSelectedGoalId(goal.id); setIsGoalModalOpen(true); }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setSelectedGoalId(goal.id);
-                      setIsGoalModalOpen(true);
-                    }
-                  }}
-                  className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm hover:shadow-md hover:border-stone-300 transition-all cursor-pointer relative overflow-hidden group text-left"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-2xl group-hover:scale-110 transition-transform">{goal.icon}</span>
-                    <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2 py-1 rounded-lg">
-                      {percent}%
-                    </span>
+          {goals.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-stone-200/80 p-8 text-center shadow-sm">
+              <div className="text-3xl mb-2">🎯</div>
+              <div className="text-sm font-semibold text-stone-800">Нет активных целей-копилок</div>
+              <p className="text-xs text-stone-500 mt-1 max-w-sm mx-auto">
+                Создайте первую цель накопления на отпуск, ремонт или подушку безопасности
+              </p>
+              <button
+                onClick={() => setIsNewGoalModalOpen(true)}
+                className="mt-4 px-4 py-2 bg-stone-900 text-white rounded-xl text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center gap-1.5 shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Создать цель</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {goals.map(goal => {
+                const percent = goal.target > 0 ? Math.min(100, Math.max(0, Math.round((goal.current / goal.target) * 100))) : 0;
+                return (
+                  <div 
+                    key={goal.id} 
+                    onClick={() => { setSelectedGoalId(goal.id); setIsGoalModalOpen(true); }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Пополнить цель: ${goal.title}`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedGoalId(goal.id);
+                        setIsGoalModalOpen(true);
+                      }
+                    }}
+                    className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm hover:shadow-md hover:border-stone-300 transition-all cursor-pointer relative overflow-hidden group text-left"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-2xl group-hover:scale-110 transition-transform">{goal.icon}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2 py-1 rounded-lg">
+                          {percent}%
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteGoal(e, goal.id)}
+                          aria-label={`Удалить цель ${goal.title}`}
+                          className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition opacity-70 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                          title="Удалить цель"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="font-semibold text-stone-900 mb-1 flex items-center justify-between gap-2">
+                      <span className="truncate" title={goal.title}>{goal.title}</span>
+                      <span className="text-xs font-normal text-violet-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        + Пополнить
+                      </span>
+                    </div>
+                    <div className="text-xs text-stone-500 mb-4 font-medium truncate">
+                      {goal.current.toLocaleString('ru-RU')} ₽ из {goal.target.toLocaleString('ru-RU')} ₽
+                    </div>
+                    <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full bg-gradient-to-r ${goal.color} transition-all duration-500`}
+                        style={{ width: `${percent}%` }}
+                      ></div>
+                    </div>
                   </div>
-                  <div className="font-semibold text-stone-900 mb-1 flex items-center justify-between">
-                    <span>{goal.title}</span>
-                    <span className="text-xs font-normal text-violet-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                      + Пополнить
-                    </span>
-                  </div>
-                  <div className="text-xs text-stone-500 mb-4 font-medium">
-                    {goal.current.toLocaleString('ru-RU')} ₽ из {goal.target.toLocaleString('ru-RU')} ₽
-                  </div>
-                  <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full rounded-full bg-gradient-to-r ${goal.color} transition-all duration-500`}
-                      style={{ width: `${percent}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Секция последних операций */}
@@ -558,14 +679,15 @@ export default function FamilyBudgetApp() {
                 placeholder="Поиск по названию или категории..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs font-medium pl-10 pr-9 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900 placeholder:text-stone-400"
+                aria-label="Поиск по операциям"
+                className="w-full text-xs font-medium pl-10 pr-9 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900 placeholder:text-stone-500 text-stone-900"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
                   aria-label="Очистить поиск"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-700"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-700 p-1"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -713,7 +835,7 @@ export default function FamilyBudgetApp() {
                           <span>•</span>
                           <span>{tx.date}</span>
                           <span>•</span>
-                          <span className="px-1.5 py-0.2 rounded bg-stone-100 text-[10px] text-stone-600">
+                          <span className="px-1.5 py-0.5 rounded bg-stone-100 text-[10px] text-stone-600 font-medium">
                             {tx.account === 'shared' ? 'Общий' : 'Личный'}
                           </span>
                         </div>
@@ -726,7 +848,7 @@ export default function FamilyBudgetApp() {
                       <button
                         onClick={() => handleDeleteTransaction(tx.id)}
                         aria-label="Удалить операцию"
-                        className="text-stone-400 hover:text-rose-600 p-1.5 rounded-xl hover:bg-rose-50 transition opacity-80 group-hover:opacity-100"
+                        className="text-stone-500 hover:text-rose-600 p-1.5 rounded-xl hover:bg-rose-50 transition opacity-80 group-hover:opacity-100"
                         title="Удалить"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -753,12 +875,18 @@ export default function FamilyBudgetApp() {
 
       {/* Модальное окно: Правило 3 секунд (Добавление расхода/дохода) */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsAddModalOpen(false); }}
+          className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-modal-title"
+        >
           <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl border border-stone-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-stone-100">
               <div className="flex items-center gap-2">
                 <span className="text-lg">{currentUser === 'husband' ? '🧔🏻‍♂️' : '👩🏼'}</span>
-                <span className="font-semibold text-stone-900 text-sm">Новая запись</span>
+                <span id="add-modal-title" className="font-semibold text-stone-900 text-sm">Новая запись</span>
               </div>
               <button 
                 onClick={() => setIsAddModalOpen(false)} 
@@ -798,11 +926,15 @@ export default function FamilyBudgetApp() {
                 <input
                   type="number"
                   inputMode="decimal"
+                  step="any"
+                  min="0.01"
+                  required
                   placeholder="0"
                   autoFocus
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="w-full text-3xl font-bold px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900"
+                  aria-label="Сумма операции"
+                  className="w-full text-3xl font-bold px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
                 />
               </div>
 
@@ -851,7 +983,8 @@ export default function FamilyBudgetApp() {
                     type="date"
                     value={txDate}
                     onChange={(e) => setTxDate(e.target.value)}
-                    className="w-full text-xs font-medium px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900"
+                    aria-label="Дата операции"
+                    className="w-full text-xs font-medium px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
                   />
                 </div>
               </div>
@@ -881,6 +1014,7 @@ export default function FamilyBudgetApp() {
                         placeholder="Эмодзи"
                         value={newCatIcon}
                         onChange={(e) => setNewCatIcon(e.target.value)}
+                        aria-label="Эмодзи категории"
                         className="w-16 text-center text-base p-2 bg-white border border-stone-200 rounded-xl focus:outline-none"
                       />
                       <input
@@ -888,6 +1022,7 @@ export default function FamilyBudgetApp() {
                         placeholder="Название категории"
                         value={newCatName}
                         onChange={(e) => setNewCatName(e.target.value)}
+                        aria-label="Название категории"
                         className="flex-1 text-xs p-2.5 bg-white border border-stone-200 rounded-xl focus:outline-none"
                       />
                     </div>
@@ -903,19 +1038,31 @@ export default function FamilyBudgetApp() {
 
                 <div className="grid grid-cols-4 gap-2">
                   {activeCategories.map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => setSelectedCategory(c.name)}
-                      className={`p-2 rounded-2xl flex flex-col items-center gap-1 text-center border transition ${
-                        selectedCategory === c.name 
-                          ? 'border-stone-900 bg-stone-900 text-white' 
-                          : 'border-stone-100 bg-stone-50 text-stone-700 hover:bg-stone-100'
-                      }`}
-                    >
-                      <span className="text-lg">{c.icon}</span>
-                      <span className="text-[10px] leading-tight font-medium truncate w-full">{c.name}</span>
-                    </button>
+                    <div key={c.id} className="relative group/cat">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategory(c.name)}
+                        className={`w-full p-2 rounded-2xl flex flex-col items-center gap-1 text-center border transition ${
+                          selectedCategory === c.name 
+                            ? 'border-stone-900 bg-stone-900 text-white' 
+                            : 'border-stone-100 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                        }`}
+                      >
+                        <span className="text-lg">{c.icon}</span>
+                        <span className="text-[10px] leading-tight font-medium truncate w-full">{c.name}</span>
+                      </button>
+                      {c.id.startsWith('cat_') && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteCustomCategory(e, c.id)}
+                          aria-label={`Удалить категорию ${c.name}`}
+                          className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[11px] font-bold opacity-70 hover:opacity-100 shadow-sm"
+                          title="Удалить категорию"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -928,7 +1075,8 @@ export default function FamilyBudgetApp() {
                   placeholder="Например: Супермаркет, Заправка, Премия..."
                   value={txTitle}
                   onChange={(e) => setTxTitle(e.target.value)}
-                  className="w-full text-xs px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900"
+                  aria-label="Комментарий к операции"
+                  className="w-full text-xs px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
                 />
               </div>
 
@@ -946,10 +1094,16 @@ export default function FamilyBudgetApp() {
 
       {/* Модальное окно: Пополнение цели */}
       {isGoalModalOpen && (
-        <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsGoalModalOpen(false); }}
+          className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="goal-modal-title"
+        >
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-stone-200">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
-              <span className="font-semibold text-stone-900 text-sm">Пополнение копилки</span>
+              <span id="goal-modal-title" className="font-semibold text-stone-900 text-sm">Пополнение копилки</span>
               <button 
                 onClick={() => setIsGoalModalOpen(false)} 
                 aria-label="Закрыть модальное окно"
@@ -959,63 +1113,92 @@ export default function FamilyBudgetApp() {
               </button>
             </div>
 
-            <form onSubmit={handleContributeGoal} className="pt-4 space-y-4">
-              <div>
-                <label className="text-xs font-medium text-stone-500 block mb-1">Выберите цель</label>
-                <select
-                  value={selectedGoalId || ''}
-                  onChange={(e) => setSelectedGoalId(e.target.value)}
-                  className="w-full text-sm font-medium px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none"
+            {goals.length === 0 ? (
+              <div className="pt-6 pb-2 text-center space-y-3">
+                <div className="text-3xl">🎯</div>
+                <div className="text-sm font-semibold text-stone-800">Нет активных целей-копилок</div>
+                <p className="text-xs text-stone-500">Создайте первую цель, чтобы начать откладывать средства</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGoalModalOpen(false);
+                    setIsNewGoalModalOpen(true);
+                  }}
+                  className="w-full py-2.5 bg-stone-900 text-white rounded-xl text-xs font-semibold hover:bg-stone-800 transition"
                 >
-                  {goals.map(g => (
-                    <option key={g.id} value={g.id}>{g.icon} {g.title} ({g.current.toLocaleString()} / {g.target.toLocaleString()} ₽)</option>
-                  ))}
-                </select>
+                  + Создать новую цель
+                </button>
               </div>
-
-              <div>
-                <label className="text-xs font-medium text-stone-500 block mb-1">Сумма пополнения (₽)</label>
-                <input
-                  type="number"
-                  placeholder="Например, 5000"
-                  autoFocus
-                  value={goalAmount}
-                  onChange={(e) => setGoalAmount(e.target.value)}
-                  className="w-full text-xl font-bold px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900"
-                />
-              </div>
-
-              {/* Быстрые фишки сумм */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {[1000, 3000, 5000, 10000].map(v => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setGoalAmount(String((Number(goalAmount) || 0) + v))}
-                    className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-xs font-medium text-stone-700 whitespace-nowrap transition"
+            ) : (
+              <form onSubmit={handleContributeGoal} className="pt-4 space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-stone-500 block mb-1">Выберите цель</label>
+                  <select
+                    value={selectedGoalId || goals[0]?.id || ''}
+                    onChange={(e) => setSelectedGoalId(e.target.value)}
+                    aria-label="Цель для пополнения"
+                    className="w-full text-sm font-medium px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none text-stone-900"
                   >
-                    +{v} ₽
-                  </button>
-                ))}
-              </div>
+                    {goals.map(g => (
+                      <option key={g.id} value={g.id}>{g.icon} {g.title} ({g.current.toLocaleString('ru-RU')} / {g.target.toLocaleString('ru-RU')} ₽)</option>
+                    ))}
+                  </select>
+                </div>
 
-              <button
-                type="submit"
-                className="w-full py-3 bg-violet-600 text-white rounded-2xl font-semibold text-sm hover:bg-violet-700 transition"
-              >
-                Внести в накопления
-              </button>
-            </form>
+                <div>
+                  <label className="text-xs font-medium text-stone-500 block mb-1">Сумма пополнения (₽)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    required
+                    placeholder="Например, 5000"
+                    autoFocus
+                    value={goalAmount}
+                    onChange={(e) => setGoalAmount(e.target.value)}
+                    aria-label="Сумма пополнения копилки"
+                    className="w-full text-xl font-bold px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                  />
+                </div>
+
+                {/* Быстрые фишки сумм */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {[1000, 3000, 5000, 10000].map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setGoalAmount(String((Number(goalAmount) || 0) + v))}
+                      className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-xs font-medium text-stone-700 whitespace-nowrap transition"
+                    >
+                      +{v} ₽
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-violet-600 text-white rounded-2xl font-semibold text-sm hover:bg-violet-700 transition"
+                >
+                  Внести в накопления
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
 
       {/* Модальное окно: Создание новой цели-копилки */}
       {isNewGoalModalOpen && (
-        <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsNewGoalModalOpen(false); }}
+          className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-goal-modal-title"
+        >
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-stone-200">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
-              <span className="font-semibold text-stone-900 text-sm">Новая цель-копилка</span>
+              <span id="new-goal-modal-title" className="font-semibold text-stone-900 text-sm">Новая цель-копилка</span>
               <button 
                 onClick={() => setIsNewGoalModalOpen(false)} 
                 aria-label="Закрыть модальное окно"
@@ -1030,11 +1213,13 @@ export default function FamilyBudgetApp() {
                 <label className="text-xs font-medium text-stone-500 block mb-1">Название цели</label>
                 <input
                   type="text"
+                  required
                   placeholder="Например: Ремонт кухни, Автомобиль"
                   autoFocus
                   value={newGoalTitle}
                   onChange={(e) => setNewGoalTitle(e.target.value)}
-                  className="w-full text-xs font-medium px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900"
+                  aria-label="Название цели"
+                  className="w-full text-xs font-medium px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
                 />
               </div>
 
@@ -1043,20 +1228,27 @@ export default function FamilyBudgetApp() {
                   <label className="text-xs font-medium text-stone-500 block mb-1">Целевая сумма (₽)</label>
                   <input
                     type="number"
+                    min="1"
+                    step="any"
+                    required
                     placeholder="150000"
                     value={newGoalTarget}
                     onChange={(e) => setNewGoalTarget(e.target.value)}
-                    className="w-full text-xs font-medium px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900"
+                    aria-label="Целевая сумма"
+                    className="w-full text-xs font-medium px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-stone-500 block mb-1">Уже накоплено (₽)</label>
                   <input
                     type="number"
+                    min="0"
+                    step="any"
                     placeholder="0"
                     value={newGoalCurrent}
                     onChange={(e) => setNewGoalCurrent(e.target.value)}
-                    className="w-full text-xs font-medium px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900"
+                    aria-label="Уже накопленная сумма"
+                    className="w-full text-xs font-medium px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
                   />
                 </div>
               </div>
@@ -1070,6 +1262,7 @@ export default function FamilyBudgetApp() {
                       key={ic}
                       type="button"
                       onClick={() => setNewGoalIcon(ic)}
+                      aria-label={`Выбрать иконку цели ${ic}`}
                       className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm border transition ${
                         newGoalIcon === ic ? 'border-stone-900 bg-stone-100 font-bold' : 'border-stone-200 bg-stone-50 hover:bg-stone-100'
                       }`}
@@ -1089,6 +1282,7 @@ export default function FamilyBudgetApp() {
                       key={preset.value}
                       type="button"
                       onClick={() => setNewGoalColor(preset.value)}
+                      aria-label={`Выбрать цвет ${preset.label}`}
                       className={`h-7 rounded-xl bg-gradient-to-r ${preset.value} border-2 transition ${
                         newGoalColor === preset.value ? 'border-stone-900 scale-105' : 'border-transparent opacity-80 hover:opacity-100'
                       }`}
