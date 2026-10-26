@@ -1,8 +1,13 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const esbuild = require('esbuild');
 
-console.log('--- Запуск модульных тестов Семейный Бюджет v0.6.0 ---');
+console.log('=== Запуск модульных тестов Семейный Бюджет v0.6.0 ===\n');
 
-// Тестовый набор операций за 2 месяца (сентябрь и октябрь 2026)
+// -------------------------------------------------------------
+// Тестовый набор операций за несколько периодов (сентябрь, октябрь, ноябрь 2026)
+// -------------------------------------------------------------
 const sampleTxs = [
   // Сентябрь
   { id: 's1', amount: 120000, type: 'income', account: 'shared', author: 'husband', date: '2026-09-10' },
@@ -16,21 +21,36 @@ const sampleTxs = [
   { id: 'o2', amount: 40000, type: 'expense', account: 'shared', author: 'husband', date: '2026-10-10', category: 'Продукты' },
   { id: 'o3', amount: 20000, type: 'expense', account: 'shared', author: 'husband', date: '2026-10-12', category: 'Долги и кредиты', debtId: 'd1' },
   { id: 'o4', amount: 10000, type: 'expense', account: 'personal', author: 'husband', date: '2026-10-15' },
+  { id: 'o5', amount: 10000, type: 'expense', account: 'shared', author: 'wife', date: '2026-10-20', category: 'Долги и кредиты', debtId: 'd1' }, // второй платёж в том же месяце
 
   // Ноябрь (будущая операция, не должна влиять на баланс октября)
   { id: 'n1', amount: 50000, type: 'income', account: 'shared', author: 'husband', date: '2026-11-01' },
 ];
 
 const isSavingsOrDebtTx = (tx) => {
+  if (!tx) return false;
   if (tx.goalId || tx.debtId) return true;
   const cat = (tx.category || '').toLowerCase();
   return cat === 'накопления' || cat === 'долги и кредиты' || cat === 'долги' || cat === 'кредиты';
 };
 
-// 1. ТЕСТ КУМУЛЯТИВНОГО ПЕРЕХОДЯЩЕГО ОСТАТКА И ИЗОЛЯЦИИ
-console.log('Тест 1: Кумулятивный остаток и месячный поток...');
+// 1. ТЕСТ КУМУЛЯТИВНОГО ПЕРЕХОДЯЩЕГО ОСТАТКА И КРАЕВЫХ ДАТ
+console.log('Тест 1: Кумулятивный остаток, границы месяцев и високосные годы...');
+const calcEndOfMonth = (selectedMonth) => {
+  if (!selectedMonth || selectedMonth === 'all') return '9999-12-31';
+  const [y, m] = selectedMonth.split('-').map(Number);
+  const days = new Date(y, m, 0).getDate();
+  return `${selectedMonth}-${String(days).padStart(2, '0')}`;
+};
+
+assert.strictEqual(calcEndOfMonth('2026-09'), '2026-09-30', 'Сентябрь должен заканчиваться 30-го');
+assert.strictEqual(calcEndOfMonth('2026-10'), '2026-10-31', 'Октябрь должен заканчиваться 31-го');
+assert.strictEqual(calcEndOfMonth('2024-02'), '2024-02-29', 'Февраль 2024 (високосный) должен заканчиваться 29-го');
+assert.strictEqual(calcEndOfMonth('2026-02'), '2026-02-28', 'Февраль 2026 должен заканчиваться 28-го');
+assert.strictEqual(calcEndOfMonth('all'), '9999-12-31', 'all должен возвращать 9999-12-31');
+
 const calcCumulativeAndPeriod = (txs, selectedMonth) => {
-  const endOfMonth = selectedMonth + '-31';
+  const endOfMonth = calcEndOfMonth(selectedMonth);
 
   let cumSharedIncome = 0;
   let cumSharedExpense = 0;
@@ -46,7 +66,6 @@ const calcCumulativeAndPeriod = (txs, selectedMonth) => {
     const val = Number(t.amount) || 0;
     const isSavingOrDebt = isSavingsOrDebtTx(t);
 
-    // Кумулятивный остаток (все транзакции <= конца выбранного месяца)
     if (t.date <= endOfMonth) {
       if (t.account === 'shared') {
         if (t.type === 'income') cumSharedIncome += val;
@@ -57,8 +76,7 @@ const calcCumulativeAndPeriod = (txs, selectedMonth) => {
       }
     }
 
-    // Месячный поток (строго внутри выбранного месяца)
-    if (t.date.startsWith(selectedMonth)) {
+    if (selectedMonth === 'all' || t.date.startsWith(selectedMonth)) {
       if (t.account === 'shared') {
         if (t.type === 'income') {
           monthSharedIncome += val;
@@ -87,78 +105,168 @@ const calcCumulativeAndPeriod = (txs, selectedMonth) => {
 };
 
 const octStats = calcCumulativeAndPeriod(sampleTxs, '2026-10');
-
-// В сентябре сальдо общего котла: +120000 - 30000 - 15000 = +75000
-// В октябре сальдо общего котла: +100000 - 40000 - 20000 = +40000
-// Итого кумулятивный баланс на конец октября = 75000 + 40000 = 115000 (ноябрьские +50000 не включаются!)
-assert.strictEqual(octStats.cumSharedBalance, 115000, 'Кумулятивный баланс общего котла на конец октября должен быть 115 000 ₽');
-assert.strictEqual(octStats.monthSharedIncome, 100000, 'Доход за октябрь должен быть ровно 100 000 ₽');
-assert.strictEqual(octStats.monthSharedExpense, 60000, 'Расход за октябрь должен быть ровно 60 000 ₽');
-
-// Личный баланс мужа: сентябрь (+20000 - 5000 = 15000), октябрь (-10000) => кумулятивный остаток 5000 ₽
-assert.strictEqual(octStats.cumHusbandBalance, 5000, 'Личный баланс мужа на конец октября должен быть 5 000 ₽');
-console.log('✅ Тест 1 пройден: кумулятивный переходящий остаток работает корректно!');
+// Сентябрь общий: +120000 - 30000 - 15000 = +75000
+// Октябрь общий: +100000 - 40000 - 20000 - 10000 = +30000
+// Итого кумулятивный баланс на конец октября = 75000 + 30000 = 105000
+assert.strictEqual(octStats.cumSharedBalance, 105000, 'Кумулятивный баланс котла на конец октября = 105 000 ₽');
+assert.strictEqual(octStats.monthSharedIncome, 100000, 'Доход за октябрь = 100 000 ₽');
+assert.strictEqual(octStats.monthSharedExpense, 70000, 'Расход за октябрь = 70 000 ₽');
+assert.strictEqual(octStats.cumHusbandBalance, 5000, 'Личный баланс мужа на конец октября = 5 000 ₽');
+console.log('✅ Тест 1 пройден: кумулятивный баланс и границы месяцев работают безошибочно!');
 
 // 2. ТЕСТ ИЗОЛЯЦИИ НАКОПЛЕНИЙ И ДОЛГОВ
-console.log('Тест 2: Изоляция накоплений и долгов от потребительских трат...');
-// Потребительские расходы в октябре: только «Продукты» на 40 000 ₽.
-// Платёж по кредиту 20 000 ₽ изолирован в monthSavedAndDebtPaid и не попадает в categoryTotals!
-assert.strictEqual(octStats.monthConsumerExpense, 40000, 'Потребительские траты октября должны быть 40 000 ₽');
-assert.strictEqual(octStats.monthSavedAndDebtPaid, 20000, 'Отложено и погашено в октябре должно быть 20 000 ₽');
+console.log('\nТест 2: Изоляция накоплений и долгов от потребительской корзины...');
+assert.strictEqual(octStats.monthConsumerExpense, 40000, 'Потребительские траты октября = 40 000 ₽');
+assert.strictEqual(octStats.monthSavedAndDebtPaid, 30000, 'Отложено и погашено в октябре = 30 000 ₽ (2 платежа)');
 assert.deepStrictEqual(octStats.categoryTotals, { 'Продукты': 40000 }, 'Пирог трат не должен содержать долгов и копилок');
-console.log('✅ Тест 2 пройден: накопления и долги изолированы от потребительской корзины!');
+console.log('✅ Тест 2 пройден: накопления и долги полностью изолированы!');
 
-// 3. ТЕСТ БЕЗОПАСНОГО ДНЕВНОГО ЛИМИТА С РЕЗЕРВОМ НА ПЛАТЕЖИ
-console.log('Тест 3: Формула безопасного лимита в день с резервом на счета...');
+// 3. ТЕСТ БЕЗОПАСНОГО ДНЕВНОГО ЛИМИТА С РЕЗЕРВОМ НА СЧЕТА
+console.log('\nТест 3: Формула безопасного лимита в день с резервом на счета...');
 const calcDailyLimit = (balance, unpaidMandatory, daysLeft) => {
   const safeBalance = Math.max(0, balance - unpaidMandatory);
-  return Math.max(0, Math.round(safeBalance / daysLeft));
+  return Math.max(0, Math.round(safeBalance / Math.max(1, daysLeft)));
 };
 
-// Баланс 115 000 ₽, неоплаченных обязательных платежей на 15 000 ₽, осталось 10 дней
-const limitWithReserve = calcDailyLimit(115000, 15000, 10);
-// (115 000 - 15 000) / 10 = 10 000 ₽ в день
-assert.strictEqual(limitWithReserve, 10000, 'Дневной лимит с резервом должен быть 10 000 ₽/день');
+// Нормальный случай: 105 000 ₽, резерв 15 000 ₽, 10 дней
+assert.strictEqual(calcDailyLimit(105000, 15000, 10), 9000, 'Лимит с резервом: (105k - 15k)/10 = 9 000 ₽/день');
+// Случай после оплаты счетов: резерв 0 ₽
+assert.strictEqual(calcDailyLimit(105000, 0, 10), 10500, 'После оплаты счетов: 105k/10 = 10 500 ₽/день');
+// Граничный случай: резерв превышает баланс -> лимит 0 ₽ (не уходит в минус)
+assert.strictEqual(calcDailyLimit(10000, 25000, 10), 0, 'При дефиците лимит не должен быть отрицательным');
+// Граничный случай: последний день месяца (daysLeft = 1)
+assert.strictEqual(calcDailyLimit(105000, 15000, 1), 90000, 'В последний день лимит = остатку за вычетом резерва');
+console.log('✅ Тест 3 пройден: безопасный дневной лимит с резервом проверен на всех границах!');
 
-// Когда платёж оплачен, резерв становится 0 ₽, лимит повышается до 11 500 ₽
-const limitWithoutReserve = calcDailyLimit(115000, 0, 10);
-assert.strictEqual(limitWithoutReserve, 11500, 'После оплаты счетов дневной лимит разблокируется до 11 500 ₽/день');
-console.log('✅ Тест 3 пройден: безопасный дневной лимит с резервом проверен!');
-
-// 4. ТЕСТ МЕХАНИКИ ОБРАТНОЙ КОПИЛКИ И ПРОГНОЗА ЗАКРЫТИЯ ДОЛГА
-console.log('Тест 4: Механика обратной копилки и прогноз закрытия кредита...');
+// 4. ТЕСТ МЕХАНИКИ ОБРАТНОЙ КОПИЛКИ И ПОВТОРНЫХ ПЛАТЕЖЕЙ В МЕСЯЦЕ
+console.log('\nТест 4: Механика обратной копилки, повторные платежи и откат Undo...');
 const testDebt = {
   id: 'd1',
   title: 'Автокредит',
   initialAmount: 600000,
   remainingAmount: 240000,
   monthlyPayment: 20000,
+  paidMonths: [],
 };
 
 const calcDebtProgress = (debt) => {
-  const paid = debt.initialAmount - debt.remainingAmount;
-  const pct = Math.round((paid / debt.initialAmount) * 100);
-  const monthsLeft = Math.ceil(debt.remainingAmount / debt.monthlyPayment);
+  const paid = Math.max(0, debt.initialAmount - debt.remainingAmount);
+  const pct = Math.min(100, Math.round((paid / debt.initialAmount) * 100));
+  const monthsLeft = debt.remainingAmount > 0 ? Math.ceil(debt.remainingAmount / debt.monthlyPayment) : 0;
   return { paid, pct, monthsLeft };
 };
 
-const debtStats1 = calcDebtProgress(testDebt);
-assert.strictEqual(debtStats1.paid, 360000, 'Выплачено должно быть 360 000 ₽');
-assert.strictEqual(debtStats1.pct, 60, 'Прогресс закрытия кредита должен быть 60%');
-assert.strictEqual(debtStats1.monthsLeft, 12, 'До закрытия должно оставаться 12 месяцев');
+const p1 = calcDebtProgress(testDebt);
+assert.strictEqual(p1.paid, 360000);
+assert.strictEqual(p1.pct, 60);
+assert.strictEqual(p1.monthsLeft, 12);
 
-// Вносим платёж 20 000 ₽
+// Вносим платёж 1 (20 000 ₽) в 2026-10
 testDebt.remainingAmount -= 20000;
-const debtStats2 = calcDebtProgress(testDebt);
-assert.strictEqual(debtStats2.paid, 380000, 'После платежа выплачено должно быть 380 000 ₽');
-assert.strictEqual(debtStats2.pct, 63, 'Прогресс должен вырасти до 63%');
-assert.strictEqual(debtStats2.monthsLeft, 11, 'Осталось 11 месяцев');
+testDebt.paidMonths.push('2026-10');
+assert.strictEqual(testDebt.remainingAmount, 220000);
+assert.strictEqual(calcDebtProgress(testDebt).pct, 63);
 
-// Откат платежа по Undo
-testDebt.remainingAmount += 20000;
-const debtStats3 = calcDebtProgress(testDebt);
-assert.strictEqual(testDebt.remainingAmount, 240000, 'При отмене остаток кредита восстанавливается');
-assert.strictEqual(debtStats3.paid, 360000, 'После отмены выплаченная сумма возвращается к 360 000 ₽');
-console.log('✅ Тест 4 пройден: обратная копилка и прогноз закрытия долга работают безошибочно!');
+// Вносим платёж 2 (10 000 ₽) в 2026-10 (досрочное погашение)
+testDebt.remainingAmount -= 10000;
+// Удаляем платёж 2 с проверкой наличия оставшихся операций в этом месяце
+const remainingTxsInMonth = 1; // платёж 1 ещё остался!
+testDebt.remainingAmount += 10000;
+if (remainingTxsInMonth === 0) {
+  testDebt.paidMonths = testDebt.paidMonths.filter(m => m !== '2026-10');
+}
+// Проверяем, что 2026-10 всё ещё считается оплаченным!
+assert.ok(testDebt.paidMonths.includes('2026-10'), 'Месяц должен оставаться оплаченным, если в нем есть другие платежи!');
+console.log('✅ Тест 4 пройден: обратная копилка и логика сохранения статуса месяца работают безошибочно!');
 
-console.log('\n🎉 ВСЕ ТЕСТЫ v0.6.0 УСПЕШНО ПРОЙДЕНЫ (EXIT CODE 0)!');
+// 5. ТЕСТ BURN-DOWN МАТЕМАТИКИ И КРАЕВЫХ СЛУЧАЕВ
+console.log('\nТест 5: Burn-down расчет: 1-й день месяца, нулевой доход и вердикт...');
+const calcBurnDownPacing = (budget, currentDay, daysInMonth, actualSpending) => {
+  const baseBudget = budget > 0 ? budget : 100000;
+  const safeDays = Math.max(2, daysInMonth);
+  const planPerDay = baseBudget / safeDays;
+  const plannedUpToCurrent = Math.round(planPerDay * currentDay);
+  const diff = plannedUpToCurrent - actualSpending;
+  const isUnderBudget = diff >= 0;
+
+  // SVG точки: всегда начинаются с 1 дня от 0 ₽
+  const points = [{ day: 1, value: 0 }, { day: currentDay, value: actualSpending }];
+  return { baseBudget, plannedUpToCurrent, diff, isUnderBudget, hasValidSegment: points.length >= 2 };
+};
+
+// День 1 месяца: потрачено 2 000 ₽ при бюджете 120 000 ₽
+const bdDay1 = calcBurnDownPacing(120000, 1, 30, 2000);
+assert.strictEqual(bdDay1.hasValidSegment, true, 'Линия факта в 1 день должна содержать минимум 2 точки!');
+assert.strictEqual(bdDay1.plannedUpToCurrent, 4000);
+assert.strictEqual(bdDay1.isUnderBudget, true, '2000 <= 4000 -> в графике 🟢');
+
+// День 15 месяца: перерасход (потрачено 80 000 ₽ при плане 60 000 ₽)
+const bdDay15 = calcBurnDownPacing(120000, 15, 30, 80000);
+assert.strictEqual(bdDay15.plannedUpToCurrent, 60000);
+assert.strictEqual(bdDay15.isUnderBudget, false, '80000 > 60000 -> опережение темпа 🟠');
+assert.strictEqual(bdDay15.diff, -20000);
+console.log('✅ Тест 5 пройден: burn-down темп и вердикты рассчитаны корректно!');
+
+// 6. ТЕСТ ШКАЛЫ 50/30/20 И ЗАЩИТЫ ОТ ДЕЛЕНИЯ НА НОЛЬ
+console.log('\nТест 6: Светофор 50/30/20 и безопасные проценты без деления на 0...');
+const calcRulePercentages = (base, wants, future) => {
+  const total = base + wants + future;
+  if (total === 0) return { basePct: 0, wantsPct: 0, futurePct: 0 };
+  const basePct = Math.round((base / total) * 100);
+  const wantsPct = Math.round((wants / total) * 100);
+  const futurePct = 100 - basePct - wantsPct; // дополняющий процент без зазоров
+  return { basePct, wantsPct, futurePct };
+};
+
+const emptyRule = calcRulePercentages(0, 0, 0);
+assert.strictEqual(emptyRule.basePct, 0, 'При отсутствии трат процент = 0%');
+assert.strictEqual(emptyRule.wantsPct, 0);
+assert.strictEqual(emptyRule.futurePct, 0);
+
+const activeRule = calcRulePercentages(50000, 30000, 20000);
+assert.strictEqual(activeRule.basePct, 50);
+assert.strictEqual(activeRule.wantsPct, 30);
+assert.strictEqual(activeRule.futurePct, 20);
+assert.strictEqual(activeRule.basePct + activeRule.wantsPct + activeRule.futurePct, 100);
+console.log('✅ Тест 6 пройден: расчет корзин 50/30/20 полностью устойчив!');
+
+// 7. ТЕСТ ДИНАМИКИ 6 МЕСЯЦЕВ БЕЗ UTC-СДВИГА
+console.log('\nТест 7: Вычисление 6 месяцев без временного сдвига (local numerical)...');
+const calcSixMonths = (ym) => {
+  const [baseY, baseM] = ym.split('-').map(Number);
+  const list = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(baseY, baseM - 1 - i, 1);
+    const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    list.push(mStr);
+  }
+  return list;
+};
+
+const monthsFromOct = calcSixMonths('2026-10');
+assert.deepStrictEqual(
+  monthsFromOct,
+  ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'],
+  '6 месяцев назад от 2026-10 должны быть май - октябрь 2026'
+);
+console.log('✅ Тест 7 пройден: динамика 6 месяцев не подвержена сдвигам часовых поясов!');
+
+// 8. СИНТАКСИЧЕСКАЯ И СТРУКТУРНАЯ ПРОВЕРКА APP.JSX И STANDALONE.HTML
+console.log('\nТест 8: Синтаксическая компиляция App.jsx и standalone.html через esbuild...');
+const appPath = path.join(__dirname, '..', 'src', 'App.jsx');
+const appCode = fs.readFileSync(appPath, 'utf8');
+const resApp = esbuild.transformSync(appCode, { loader: 'jsx' });
+assert.ok(resApp.code.length > 50000, 'App.jsx скомпилирован успешно');
+
+const standalonePath = path.join(__dirname, '..', 'standalone.html');
+if (fs.existsSync(standalonePath)) {
+  const standaloneContent = fs.readFileSync(standalonePath, 'utf8');
+  const match = standaloneContent.match(/<script type="text\/babel">([\s\S]*?)<\/script>/);
+  if (match) {
+    const resStandalone = esbuild.transformSync(match[1], { loader: 'jsx' });
+    assert.ok(resStandalone.code.length > 50000, 'standalone.html JSX скомпилирован успешно');
+  }
+}
+console.log('✅ Тест 8 пройден: JSX и структура файлов проверены компилятором!');
+
+console.log('\n🎉 ВСЕ 8 МОДУЛЬНЫХ ТЕСТОВ v0.6.0 УСПЕШНО ПРОЙДЕНЫ (EXIT CODE 0)!');

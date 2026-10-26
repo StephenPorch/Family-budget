@@ -559,6 +559,13 @@ export default function FamilyBudgetApp() {
         ? wifePersonal.balance
         : shared.balance;
 
+    const activeSavedAndDebtPaid =
+      activeWalletCard === 'husband'
+        ? husbandPersonal.savedAndDebtPaid
+        : activeWalletCard === 'wife'
+        ? wifePersonal.savedAndDebtPaid
+        : shared.savedAndDebtPaid;
+
     const reserveToDeduct = activeWalletCard === 'shared' ? unpaidMandatoryThisMonth : 0;
     const safeBalance = Math.max(0, activeBalance - reserveToDeduct);
     const dailyAvailable = Math.max(0, Math.round(safeBalance / daysLeft));
@@ -597,6 +604,7 @@ export default function FamilyBudgetApp() {
       totalDebtRemaining,
       totalDebtInitial,
       dailyAvailable,
+      activeSavedAndDebtPaid,
       daysLeft,
       daysInMonth,
       topCategories,
@@ -769,6 +777,50 @@ export default function FamilyBudgetApp() {
         );
       }
 
+      // Корректировка paidMonths при смене месяца даты
+      if (oldTx && (oldTx.debtId || oldTx.recurringId)) {
+        const oldYm = (oldTx.date || '').slice(0, 7);
+        const newYm = finalDate.slice(0, 7);
+        if (oldYm !== newYm) {
+          if (oldTx.debtId) {
+            const hasOtherInOld = transactions.some(
+              t => t.id !== editingTxId && t.debtId === oldTx.debtId && (t.date || '').startsWith(oldYm)
+            );
+            setDebts(prev =>
+              prev.map(d =>
+                d.id === oldTx.debtId
+                  ? {
+                      ...d,
+                      paidMonths: Array.from(new Set([
+                        ...(hasOtherInOld ? (d.paidMonths || []) : (d.paidMonths || []).filter(m => m !== oldYm)),
+                        newYm
+                      ])),
+                    }
+                  : d
+              )
+            );
+          }
+          if (oldTx.recurringId) {
+            const hasOtherInOld = transactions.some(
+              t => t.id !== editingTxId && t.recurringId === oldTx.recurringId && (t.date || '').startsWith(oldYm)
+            );
+            setRecurringPayments(prev =>
+              prev.map(r =>
+                r.id === oldTx.recurringId
+                  ? {
+                      ...r,
+                      paidMonths: Array.from(new Set([
+                        ...(hasOtherInOld ? (r.paidMonths || []) : (r.paidMonths || []).filter(m => m !== oldYm)),
+                        newYm
+                      ])),
+                    }
+                  : r
+              )
+            );
+          }
+        }
+      }
+
       showToast(`Операция «${finalTitle}» обновлена`);
     } else {
       const newTx = {
@@ -819,13 +871,18 @@ export default function FamilyBudgetApp() {
     // Откат долга
     if (tx.debtId) {
       const txMonth = (tx.date || '').slice(0, 7);
+      const hasOtherThisMonth = transactions.some(
+        t => t.id !== id && t.debtId === tx.debtId && (t.date || '').startsWith(txMonth)
+      );
       setDebts(prev =>
         prev.map(d =>
           d.id === tx.debtId
             ? {
                 ...d,
                 remainingAmount: (Number(d.remainingAmount) || 0) + (Number(tx.amount) || 0),
-                paidMonths: (d.paidMonths || []).filter(m => m !== txMonth),
+                paidMonths: hasOtherThisMonth
+                  ? (d.paidMonths || [])
+                  : (d.paidMonths || []).filter(m => m !== txMonth),
               }
             : d
         )
@@ -835,10 +892,18 @@ export default function FamilyBudgetApp() {
     // Откат статуса регулярного платежа
     if (tx.recurringId) {
       const txMonth = (tx.date || '').slice(0, 7);
+      const hasOtherThisMonth = transactions.some(
+        t => t.id !== id && t.recurringId === tx.recurringId && (t.date || '').startsWith(txMonth)
+      );
       setRecurringPayments(prev =>
         prev.map(r =>
           r.id === tx.recurringId
-            ? { ...r, paidMonths: (r.paidMonths || []).filter(m => m !== txMonth) }
+            ? {
+                ...r,
+                paidMonths: hasOtherThisMonth
+                  ? (r.paidMonths || [])
+                  : (r.paidMonths || []).filter(m => m !== txMonth),
+              }
             : r
         )
       );
@@ -999,7 +1064,17 @@ export default function FamilyBudgetApp() {
     );
 
     setTransactions(prev => [newTx, ...prev]);
-    showToast(`Платеж «${rec.title}» оплачен (${rec.amount.toLocaleString('ru-RU')} ₽)`);
+    showToast(`Платеж «${rec.title}» оплачен (${Number(rec.amount).toLocaleString('ru-RU')} ₽)`, () => {
+      setTransactions(prev => prev.filter(t => t.id !== newTx.id));
+      setRecurringPayments(prev =>
+        prev.map(r =>
+          r.id === rec.id
+            ? { ...r, paidMonths: (r.paidMonths || []).filter(m => m !== targetYm) }
+            : r
+        )
+      );
+      setToast(null);
+    });
   };
 
   // Создание нового регулярного платежа
@@ -1083,7 +1158,21 @@ export default function FamilyBudgetApp() {
     setTransactions(prev => [newTx, ...prev]);
     setDebtPayAmount('');
     setIsPayDebtModalOpen(false);
-    showToast(`Внесен платёж ${num.toLocaleString('ru-RU')} ₽ по долгу «${debt.title}»`);
+    showToast(`Внесен платёж ${num.toLocaleString('ru-RU')} ₽ по долгу «${debt.title}»`, () => {
+      setTransactions(prev => prev.filter(t => t.id !== newTx.id));
+      setDebts(prev =>
+        prev.map(d =>
+          d.id === debt.id
+            ? {
+                ...d,
+                remainingAmount: (Number(d.remainingAmount) || 0) + num,
+                paidMonths: (d.paidMonths || []).filter(m => m !== targetYm),
+              }
+            : d
+        )
+      );
+      setToast(null);
+    });
   };
 
   // Открытие модалки оплаты конкретного долга
@@ -1131,6 +1220,7 @@ export default function FamilyBudgetApp() {
     const debt = debts[idx];
 
     setDebts(prev => prev.filter(d => d.id !== debtId));
+    if (selectedDebtId === debtId) setSelectedDebtId(null);
     showToast(`Кредит «${debt.title}» удален`, () => {
       setDebts(prev => {
         const copy = [...prev];
@@ -1242,9 +1332,9 @@ export default function FamilyBudgetApp() {
       }
     });
 
-    // Накопительный факт
+    // Накопительный факт (начинаем с 1 дня от 0 до текущего дня)
     let cumActual = 0;
-    const actualPoints = [];
+    const actualPoints = [{ day: 1, value: 0 }];
     for (let d = 1; d <= currentDay; d++) {
       cumActual += dailyExpenses[d];
       actualPoints.push({ day: d, value: cumActual });
@@ -1263,7 +1353,8 @@ export default function FamilyBudgetApp() {
     const h = 200 - padY * 2;
     const maxVal = Math.max(baseBudget * 1.1, cumActual * 1.1, 10000);
 
-    const getX = (d) => padX + ((d - 1) / (days - 1)) * w;
+    const safeDays = Math.max(2, days);
+    const getX = (d) => padX + ((d - 1) / (safeDays - 1)) * w;
     const getY = (val) => padY + h - (val / maxVal) * h;
 
     // Линия плана (от 1 дня до конца месяца)
@@ -1343,10 +1434,11 @@ export default function FamilyBudgetApp() {
   // 3. Динамика за 6 месяцев (Доходы vs Расходы + Накопления)
   const dynamics6MonthsData = useMemo(() => {
     const list = [];
-    const baseDate = selectedMonth === 'all' ? new Date() : new Date(selectedMonth + '-01');
+    const ymSource = selectedMonth === 'all' ? getCurrentMonthPrefix() : selectedMonth;
+    const [baseY, baseM] = ymSource.split('-').map(Number);
 
     for (let i = 5; i >= 0; i--) {
-      const d = new Date(baseDate.getFullYear(), baseDate.getMonth() - i, 1);
+      const d = new Date(baseY, baseM - 1 - i, 1);
       const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const label = MONTH_NAMES_SHORT[d.getMonth()];
 
@@ -1528,7 +1620,7 @@ export default function FamilyBudgetApp() {
                   <Icon className="w-3.5 h-3.5" />
                   <span>{tab.label}</span>
                   {tab.badge !== null && tab.badge !== undefined && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                       tab.alert
                         ? 'bg-amber-100 text-amber-800 font-bold'
                         : isActive
@@ -1700,17 +1792,24 @@ export default function FamilyBudgetApp() {
                       ? `Личный (Муж) • на ${stats.daysLeft} дн.`
                       : `Личный (Жена) • на ${stats.daysLeft} дн.`}
                   </div>
-                  {activeWalletCard === 'shared' && stats.unpaidMandatoryThisMonth > 0 && (
-                    <div className="text-[10px] text-amber-300 font-medium mt-1 flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3 shrink-0" />
-                      <span>Резерв на платежи: {stats.unpaidMandatoryThisMonth.toLocaleString('ru-RU')} ₽</span>
-                    </div>
+                  {activeWalletCard === 'shared' && (
+                    stats.unpaidMandatoryThisMonth > 0 ? (
+                      <div className="text-[10px] text-amber-300 font-medium mt-1 flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3 shrink-0" />
+                        <span>Резерв на платежи: {stats.unpaidMandatoryThisMonth.toLocaleString('ru-RU')} ₽</span>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-emerald-400 font-medium mt-1 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 shrink-0" />
+                        <span>Все счета оплачены (резерв снят)</span>
+                      </div>
+                    )
                   )}
                 </div>
                 <div className="pt-2 border-t border-stone-700/60 text-[11px] text-stone-300 flex items-center justify-between">
                   <span className="flex items-center gap-1.5 truncate">
                     <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                    <span>Отложено/погашено: {stats.shared.savedAndDebtPaid.toLocaleString('ru-RU')} ₽</span>
+                    <span>Отложено/погашено: {stats.activeSavedAndDebtPaid.toLocaleString('ru-RU')} ₽</span>
                   </span>
                 </div>
               </div>
@@ -1763,84 +1862,92 @@ export default function FamilyBudgetApp() {
 
               {/* ГРАФИК 1: Burn-down темпа трат (план vs факт + вердикт) */}
               {chartView === 'burndown' && (
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between text-xs font-medium">
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center gap-1 text-stone-500">
-                        <span className="w-3 h-0.5 border-t-2 border-dashed border-stone-400 inline-block"></span>
-                        План траектории ({burnDownData.baseBudget.toLocaleString('ru-RU')} ₽)
-                      </span>
-                      <span className="flex items-center gap-1 text-stone-900 font-semibold">
-                        <span className="w-3 h-1 bg-stone-900 inline-block rounded-full"></span>
-                        Факт трат ({burnDownData.actualUpToCurrent.toLocaleString('ru-RU')} ₽)
-                      </span>
-                    </div>
-
-                    <div className={`px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1 ${
-                      burnDownData.isUnderBudget
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        : 'bg-amber-50 text-amber-900 border border-amber-200'
-                    }`}>
-                      {burnDownData.isUnderBudget ? (
-                        <>
-                          <span>🟢</span>
-                          <span>В графике (запас {burnDownData.diff.toLocaleString('ru-RU')} ₽)</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>🟠</span>
-                          <span>Опережение темпа на {Math.abs(burnDownData.diff).toLocaleString('ru-RU')} ₽</span>
-                        </>
-                      )}
-                    </div>
+                selectedMonth === 'all' ? (
+                  <div className="py-12 text-center text-xs text-stone-500">
+                    <Clock className="w-6 h-6 mx-auto mb-2 text-stone-400" />
+                    <p className="font-semibold text-stone-700">Темп по дням строится для выбранного месяца</p>
+                    <p className="mt-1">Выберите конкретный месяц в шапке для анализа дневной траектории трат</p>
                   </div>
+                ) : (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between text-xs font-medium">
+                      <div className="flex items-center gap-3">
+                        <span className="flex items-center gap-1 text-stone-500">
+                          <span className="w-3 h-0.5 border-t-2 border-dashed border-stone-400 inline-block"></span>
+                          План траектории ({burnDownData.baseBudget.toLocaleString('ru-RU')} ₽)
+                        </span>
+                        <span className="flex items-center gap-1 text-stone-900 font-semibold">
+                          <span className="w-3 h-1 bg-stone-900 inline-block rounded-full"></span>
+                          Факт трат ({burnDownData.actualUpToCurrent.toLocaleString('ru-RU')} ₽)
+                        </span>
+                      </div>
 
-                  <div className="w-full bg-stone-50/60 p-3 rounded-2xl border border-stone-100 overflow-hidden">
-                    <svg viewBox="0 0 500 200" className="w-full h-44 select-none">
-                      {/* Сетка */}
-                      <line x1="40" y1="25" x2="460" y2="25" stroke="#e7e5e4" strokeWidth="1" strokeDasharray="3 3" />
-                      <line x1="40" y1="100" x2="460" y2="100" stroke="#e7e5e4" strokeWidth="1" strokeDasharray="3 3" />
-                      <line x1="40" y1="175" x2="460" y2="175" stroke="#d6d3d1" strokeWidth="1" />
+                      <div className={`px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1 ${
+                        burnDownData.isUnderBudget
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : 'bg-amber-50 text-amber-900 border border-amber-200'
+                      }`}>
+                        {burnDownData.isUnderBudget ? (
+                          <>
+                            <span>🟢</span>
+                            <span>В графике (запас {burnDownData.diff.toLocaleString('ru-RU')} ₽)</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>🟠</span>
+                            <span>Опережение темпа на {Math.abs(burnDownData.diff).toLocaleString('ru-RU')} ₽</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
 
-                      {/* Линия планового темпа */}
-                      <polyline
-                        fill="none"
-                        stroke="#a8a29e"
-                        strokeWidth="2"
-                        strokeDasharray="5 5"
-                        points={burnDownData.planPointsStr}
-                      />
+                    <div className="w-full bg-stone-50/60 p-3 rounded-2xl border border-stone-100 overflow-hidden">
+                      <svg viewBox="0 0 500 200" className="w-full h-44 select-none">
+                        {/* Сетка */}
+                        <line x1="40" y1="25" x2="460" y2="25" stroke="#e7e5e4" strokeWidth="1" strokeDasharray="3 3" />
+                        <line x1="40" y1="100" x2="460" y2="100" stroke="#e7e5e4" strokeWidth="1" strokeDasharray="3 3" />
+                        <line x1="40" y1="175" x2="460" y2="175" stroke="#d6d3d1" strokeWidth="1" />
 
-                      {/* Линия фактических трат */}
-                      <polyline
-                        fill="none"
-                        stroke="#1c1917"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        points={burnDownData.actualPointsStr}
-                      />
-
-                      {/* Точки фактических трат */}
-                      {burnDownData.actualPoints.map(p => (
-                        <circle
-                          key={p.day}
-                          cx={burnDownData.getX(p.day)}
-                          cy={burnDownData.getY(p.value)}
-                          r={p.day === burnDownData.currentDay ? "4" : "2.5"}
-                          fill={p.day === burnDownData.currentDay ? "#f59e0b" : "#1c1917"}
-                          stroke="#ffffff"
-                          strokeWidth="1.5"
+                        {/* Линия планового темпа */}
+                        <polyline
+                          fill="none"
+                          stroke="#a8a29e"
+                          strokeWidth="2"
+                          strokeDasharray="5 5"
+                          points={burnDownData.planPointsStr}
                         />
-                      ))}
 
-                      {/* Метки дат по оси X */}
-                      <text x="40" y="193" fontSize="10" fill="#78716c">1 дн.</text>
-                      <text x="250" y="193" fontSize="10" fill="#78716c" textAnchor="middle">15 дн.</text>
-                      <text x="460" y="193" fontSize="10" fill="#78716c" textAnchor="end">{stats.daysInMonth} дн.</text>
-                    </svg>
+                        {/* Линия фактических трат */}
+                        <polyline
+                          fill="none"
+                          stroke="#1c1917"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={burnDownData.actualPointsStr}
+                        />
+
+                        {/* Точки фактических трат */}
+                        {burnDownData.actualPoints.slice(1).map(p => (
+                          <circle
+                            key={p.day}
+                            cx={burnDownData.getX(p.day)}
+                            cy={burnDownData.getY(p.value)}
+                            r={p.day === burnDownData.currentDay ? "4" : "2.5"}
+                            fill={p.day === burnDownData.currentDay ? "#f59e0b" : "#1c1917"}
+                            stroke="#ffffff"
+                            strokeWidth="1.5"
+                          />
+                        ))}
+
+                        {/* Метки дат по оси X */}
+                        <text x="40" y="193" fontSize="10" fill="#78716c">1 дн.</text>
+                        <text x="250" y="193" fontSize="10" fill="#78716c" textAnchor="middle">15 дн.</text>
+                        <text x="460" y="193" fontSize="10" fill="#78716c" textAnchor="end">{stats.daysInMonth} дн.</text>
+                      </svg>
+                    </div>
                   </div>
-                </div>
+                )
               )}
 
               {/* ГРАФИК 2: Светофор 50/30/20 (База / Хотелки / Будущее) */}
@@ -1953,32 +2060,38 @@ export default function FamilyBudgetApp() {
                         return (
                           <g key={m.ym}>
                             {/* Столбик Доход */}
-                            <rect
-                              x={startX}
-                              y={150 - incH}
-                              width={barW}
-                              height={Math.max(2, incH)}
-                              rx="3"
-                              fill="#10b981"
-                            />
+                            {m.inc > 0 && (
+                              <rect
+                                x={startX}
+                                y={150 - Math.max(3, incH)}
+                                width={barW}
+                                height={Math.max(3, incH)}
+                                rx="3"
+                                fill="#10b981"
+                              />
+                            )}
                             {/* Столбик Расход */}
-                            <rect
-                              x={startX + barW + 2}
-                              y={150 - expH}
-                              width={barW}
-                              height={Math.max(2, expH)}
-                              rx="3"
-                              fill="#1c1917"
-                            />
+                            {m.exp > 0 && (
+                              <rect
+                                x={startX + barW + 2}
+                                y={150 - Math.max(3, expH)}
+                                width={barW}
+                                height={Math.max(3, expH)}
+                                rx="3"
+                                fill="#1c1917"
+                              />
+                            )}
                             {/* Столбик Сбережения/долги */}
-                            <rect
-                              x={startX + (barW + 2) * 2}
-                              y={150 - savH}
-                              width={barW}
-                              height={Math.max(2, savH)}
-                              rx="3"
-                              fill="#8b5cf6"
-                            />
+                            {m.sav > 0 && (
+                              <rect
+                                x={startX + (barW + 2) * 2}
+                                y={150 - Math.max(3, savH)}
+                                width={barW}
+                                height={Math.max(3, savH)}
+                                rx="3"
+                                fill="#8b5cf6"
+                              />
+                            )}
                             {/* Лейбл нормы сбережений */}
                             {m.inc > 0 && (
                               <text
@@ -2052,7 +2165,7 @@ export default function FamilyBudgetApp() {
                               <span>{item.meta.icon}</span>
                               <span className="truncate">{item.name}</span>
                               {item.diff !== 0 && (
-                                <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded-md ${
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
                                   item.diff > 0
                                     ? 'bg-rose-50 text-rose-700'
                                     : 'bg-emerald-50 text-emerald-700'
@@ -2091,68 +2204,74 @@ export default function FamilyBudgetApp() {
 
                   <div className="space-y-4">
                     {/* Шкала 1: Вклад в общие доходы */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs font-medium">
-                        <span className="text-stone-700 flex items-center gap-1">
-                          <span>💰</span> Вклад в доходы котла
-                        </span>
-                        <span className="text-stone-500 text-[11px]">
-                          Всего: {stats.shared.monthIncome.toLocaleString('ru-RU')} ₽
-                        </span>
-                      </div>
-                      <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden flex">
-                        <div
-                          className="bg-emerald-600 h-full transition-all duration-500"
-                          style={{
-                            width: `${stats.shared.monthIncome ? Math.round((stats.shared.husbandIncome / stats.shared.monthIncome) * 100) : 50}%`,
-                          }}
-                          title={`Муж: ${stats.shared.husbandIncome.toLocaleString('ru-RU')} ₽`}
-                        />
-                        <div
-                          className="bg-teal-400 h-full transition-all duration-500"
-                          style={{
-                            width: `${stats.shared.monthIncome ? Math.round((stats.shared.wifeIncome / stats.shared.monthIncome) * 100) : 50}%`,
-                          }}
-                          title={`Жена: ${stats.shared.wifeIncome.toLocaleString('ru-RU')} ₽`}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] text-stone-600">
-                        <span>🧔🏻‍♂️ Муж: {stats.shared.husbandIncome.toLocaleString('ru-RU')} ₽</span>
-                        <span>👩🏼 Жена: {stats.shared.wifeIncome.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const totalInc = stats.shared.monthIncome;
+                      const hIncPct = totalInc > 0 ? Math.round((stats.shared.husbandIncome / totalInc) * 100) : 0;
+                      const wIncPct = totalInc > 0 ? 100 - hIncPct : 0;
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs font-medium">
+                            <span className="text-stone-700 flex items-center gap-1">
+                              <span>💰</span> Вклад в доходы котла
+                            </span>
+                            <span className="text-stone-500 text-[11px]">
+                              Всего: {totalInc.toLocaleString('ru-RU')} ₽
+                            </span>
+                          </div>
+                          <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden flex">
+                            <div
+                              className="bg-emerald-600 h-full transition-all duration-500"
+                              style={{ width: `${hIncPct}%` }}
+                              title={`Муж: ${stats.shared.husbandIncome.toLocaleString('ru-RU')} ₽ (${hIncPct}%)`}
+                            />
+                            <div
+                              className="bg-teal-400 h-full transition-all duration-500"
+                              style={{ width: `${wIncPct}%` }}
+                              title={`Жена: ${stats.shared.wifeIncome.toLocaleString('ru-RU')} ₽ (${wIncPct}%)`}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-stone-600">
+                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandIncome.toLocaleString('ru-RU')} ₽{totalInc > 0 ? ` (${hIncPct}%)` : ''}</span>
+                            <span>👩🏼 Жена: {stats.shared.wifeIncome.toLocaleString('ru-RU')} ₽{totalInc > 0 ? ` (${wIncPct}%)` : ''}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Шкала 2: Оплата общих покупок (потребительских) */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs font-medium">
-                        <span className="text-stone-700 flex items-center gap-1">
-                          <span>🛒</span> Оплата общих покупок
-                        </span>
-                        <span className="text-stone-500 text-[11px]">
-                          Всего: {stats.shared.consumerExpense.toLocaleString('ru-RU')} ₽
-                        </span>
-                      </div>
-                      <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden flex">
-                        <div
-                          className="bg-stone-900 h-full transition-all duration-500"
-                          style={{
-                            width: `${stats.shared.consumerExpense ? Math.round((stats.shared.husbandConsumerSpent / stats.shared.consumerExpense) * 100) : 50}%`,
-                          }}
-                          title={`Муж: ${stats.shared.husbandConsumerSpent.toLocaleString('ru-RU')} ₽`}
-                        />
-                        <div
-                          className="bg-stone-400 h-full transition-all duration-500"
-                          style={{
-                            width: `${stats.shared.consumerExpense ? Math.round((stats.shared.wifeConsumerSpent / stats.shared.consumerExpense) * 100) : 50}%`,
-                          }}
-                          title={`Жена: ${stats.shared.wifeConsumerSpent.toLocaleString('ru-RU')} ₽`}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] text-stone-600">
-                        <span>🧔🏻‍♂️ Муж: {stats.shared.husbandConsumerSpent.toLocaleString('ru-RU')} ₽</span>
-                        <span>👩🏼 Жена: {stats.shared.wifeConsumerSpent.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const totalExp = stats.shared.consumerExpense;
+                      const hExpPct = totalExp > 0 ? Math.round((stats.shared.husbandConsumerSpent / totalExp) * 100) : 0;
+                      const wExpPct = totalExp > 0 ? 100 - hExpPct : 0;
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs font-medium">
+                            <span className="text-stone-700 flex items-center gap-1">
+                              <span>🛒</span> Оплата общих покупок
+                            </span>
+                            <span className="text-stone-500 text-[11px]">
+                              Всего: {totalExp.toLocaleString('ru-RU')} ₽
+                            </span>
+                          </div>
+                          <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden flex">
+                            <div
+                              className="bg-stone-900 h-full transition-all duration-500"
+                              style={{ width: `${hExpPct}%` }}
+                              title={`Муж: ${stats.shared.husbandConsumerSpent.toLocaleString('ru-RU')} ₽ (${hExpPct}%)`}
+                            />
+                            <div
+                              className="bg-stone-400 h-full transition-all duration-500"
+                              style={{ width: `${wExpPct}%` }}
+                              title={`Жена: ${stats.shared.wifeConsumerSpent.toLocaleString('ru-RU')} ₽ (${wExpPct}%)`}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-stone-600">
+                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandConsumerSpent.toLocaleString('ru-RU')} ₽{totalExp > 0 ? ` (${hExpPct}%)` : ''}</span>
+                            <span>👩🏼 Жена: {stats.shared.wifeConsumerSpent.toLocaleString('ru-RU')} ₽{totalExp > 0 ? ` (${wExpPct}%)` : ''}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
