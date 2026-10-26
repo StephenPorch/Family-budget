@@ -1,102 +1,140 @@
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
-console.log('=== Запуск модульных тестов Семейный Бюджет v0.6.5 ===\n');
+async function runTests() {
+  const dateUtilsUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'dateUtils.js')).href;
+  const financeCoreUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'financeCore.js')).href;
+  const csvUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'csv.js')).href;
 
-const sampleTxs = [
-  // Август
-  { id: 'a1', amount: 23500, type: 'expense', account: 'shared', author: 'husband', date: '2026-08-15', category: 'Продукты' },
-  // Сентябрь
-  { id: 's1', amount: 120000, type: 'income', account: 'shared', author: 'husband', date: '2026-09-10' },
-  { id: 's2', amount: 30000, type: 'expense', account: 'shared', author: 'wife', date: '2026-09-15', category: 'Продукты' },
-  { id: 's3', amount: 15000, type: 'expense', account: 'shared', author: 'husband', date: '2026-09-20', category: 'Накопления', goalId: 'g1' },
-  { id: 's4', amount: 20000, type: 'income', account: 'personal', author: 'husband', date: '2026-09-22' },
-  { id: 's5', amount: 5000, type: 'expense', account: 'personal', author: 'husband', date: '2026-09-25' },
-  // Октябрь
-  { id: 'o1', amount: 100000, type: 'income', account: 'shared', author: 'wife', date: '2026-10-05' },
-  { id: 'o2', amount: 40000, type: 'expense', account: 'shared', author: 'husband', date: '2026-10-10', category: 'Продукты' },
-  { id: 'o3', amount: 20000, type: 'expense', account: 'shared', author: 'husband', date: '2026-10-12', category: 'Долги и кредиты', debtId: 'd1' },
-  { id: 'o4', amount: 10000, type: 'expense', account: 'personal', author: 'husband', date: '2026-10-15' },
-  { id: 'o5', amount: 10000, type: 'expense', account: 'shared', author: 'wife', date: '2026-10-20', category: 'Долги и кредиты', debtId: 'd1' },
-  // Ноябрь
-  { id: 'n1', amount: 50000, type: 'income', account: 'shared', author: 'husband', date: '2026-11-01' },
-];
+  const {
+    normalizeImportedDate,
+    parseImportedAmount,
+    formatCompactCellAmount,
+  } = await import(dateUtilsUrl);
 
-const isSavingsOrDebtTx = (tx) => {
-  if (!tx) return false;
-  if (tx.goalId || tx.debtId) return true;
-  const cat = (tx.category || '').toLowerCase();
-  return cat === 'накопления' || cat === 'долги и кредиты' || cat === 'долги' || cat === 'кредиты';
-};
+  const {
+    calculateSafeDailyBudget,
+    isTransactionLockedType,
+    mergeTransactions,
+    calculateDebtPayoff,
+    calculateHistoricalForecast,
+  } = await import(financeCoreUrl);
 
-// 1. ТЕСТ КУМУЛЯТИВНОГО ПЕРЕХОДЯЩЕГО ОСТАТКА И КРАЕВЫХ ДАТ
-console.log('Тест 1: Кумулятивный остаток и привязка даты к выбранному месяцу...');
-const getTargetDateForMonth = (selectedMonth, preferredDay = null, currentYm = '2026-10', todayStr = '2026-10-26') => {
-  const targetYm = !selectedMonth || selectedMonth === 'all' ? currentYm : selectedMonth;
-  const [y, m] = targetYm.split('-').map(Number);
-  const maxDays = new Date(y, m, 0).getDate();
-  if (targetYm === currentYm && !preferredDay) return todayStr;
-  const dayToUse = preferredDay
-    ? Math.min(maxDays, Math.max(1, Number(preferredDay) || 1))
-    : 15;
-  return `${targetYm}-${String(dayToUse).padStart(2, '0')}`;
-};
+  const { parseCsvText } = await import(csvUrl);
 
-assert.strictEqual(getTargetDateForMonth('2026-09', 25), '2026-09-25', 'Оплата в сентябре должна записываться сентябрем');
-assert.strictEqual(getTargetDateForMonth('2026-02', 31), '2026-02-28', '31-е число в феврале 2026 должно ограничиваться 28 февраля');
-console.log('✅ Тест 1 пройден!');
+  console.log('🧪 Running Family Budget v0.7.0 Core Unit Tests (Direct ES Module Imports)...');
 
-// 2. ТЕСТ РАЗДЕЛЬНОГО РЕЗЕРВА ОБЯЗАТЕЛЬНЫХ ПЛАТЕЖЕЙ ПО КОШЕЛЬКАМ
-console.log('\nТест 2: Раздельный резерв обязательных платежей (Общий котел vs Личные карты)...');
-const testRecurring = [
-  { id: 'r1', amount: 15000, account: 'shared', isMandatory: true, paidMonths: [] },
-  { id: 'r2', amount: 1400, account: 'personal', author: 'wife', isMandatory: true, paidMonths: [] },
-  { id: 'r3', amount: 2500, account: 'personal', author: 'husband', isMandatory: true, paidMonths: ['2026-10'] },
-];
-const calcReserves = (recs, targetYm) => {
-  const res = { shared: 0, husband: 0, wife: 0 };
-  recs.forEach(r => {
-    if (!r.isMandatory || (r.paidMonths || []).includes(targetYm)) return;
-    if (r.account === 'shared') res.shared += r.amount;
-    else if (r.author === 'wife') res.wife += r.amount;
-    else res.husband += r.amount;
-  });
-  return res;
-};
-const rOct = calcReserves(testRecurring, '2026-10');
-assert.strictEqual(rOct.shared, 15000, 'Резерв котла не должен включать личные счета');
-assert.strictEqual(rOct.wife, 1400, 'Личный обязательный счет жены резервируется на карте жены');
-assert.strictEqual(rOct.husband, 0, 'Оплаченный счет мужа не блокирует резерв');
-console.log('✅ Тест 2 пройден!');
+  // Test 1: Safe Daily Budget & Cash Gap Exposure (v0.7.0 Fix)
+  {
+    const normal = calculateSafeDailyBudget({
+      activeBalance: 50000,
+      unpaidMandatoryTotal: 15000,
+      unpaidRecommendedTotal: 5000,
+      deductMandatory: true,
+      deductRecommended: false,
+      daysLeft: 10,
+      isPastMonth: false,
+    });
+    assert.strictEqual(normal.safeBalance, 35000);
+    assert.strictEqual(normal.dailyAvailable, 3500);
+    assert.strictEqual(normal.hasCashGap, false);
+    assert.strictEqual(normal.cashGapAmount, 0);
 
-// 3. ТЕСТ ПРОГНОЗА РАСХОДОВ НА ОСНОВЕ АНАЛИЗА ПРОШЛЫХ МЕСЯЦЕВ
-console.log('\nТест 3: Прогноз планируемых расходов на основе прошлых месяцев...');
-const pastMonths = ['2026-08', '2026-09'];
-const augSeptFood = 23500 + 30000;
-const avgFood = Math.round(augSeptFood / pastMonths.length);
-assert.strictEqual(avgFood, 26750, 'Средний расход на продукты за август и сентябрь = 26 750 ₽');
-console.log('✅ Тест 3 пройден!');
+    const deficit = calculateSafeDailyBudget({
+      activeBalance: 8000,
+      unpaidMandatoryTotal: 16000,
+      unpaidRecommendedTotal: 0,
+      deductMandatory: true,
+      deductRecommended: false,
+      daysLeft: 10,
+      isPastMonth: false,
+    });
+    assert.strictEqual(deficit.rawSafeBalance, -8000);
+    assert.strictEqual(deficit.hasCashGap, true);
+    assert.strictEqual(deficit.cashGapAmount, 8000);
+    assert.strictEqual(deficit.dailyAvailable, 0);
+    console.log('  ✅ Test 1 PASSED: Safe daily budget & negative cash gap exposure');
+  }
 
-// 4. ТЕСТ ЭКСПОРТА/ИМПОРТА СТРУКТУРИРОВАННОГО CSV И СИНТАКСИСА APP.JSX
-console.log('\nТест 4: Проверка кода App.jsx и standalone.html v0.6.5...');
-const appPath = path.join(__dirname, '..', 'src', 'App.jsx');
-const appCode = fs.readFileSync(appPath, 'utf8');
+  // Test 2: Recurring Payment Edit Type Lock (v0.7.0 Fix)
+  {
+    assert.strictEqual(isTransactionLockedType({ id: 1, type: 'expense' }), false);
+    assert.strictEqual(isTransactionLockedType({ id: 2, type: 'expense', goalId: 10 }), true);
+    assert.strictEqual(isTransactionLockedType({ id: 3, type: 'expense', debtId: 20 }), true);
+    assert.strictEqual(isTransactionLockedType({ id: 4, type: 'expense', recurringId: 30 }), true);
+    console.log('  ✅ Test 2 PASSED: Recurring payment transaction type lock (goalId | debtId | recurringId)');
+  }
 
-assert.ok(appCode.includes('buildXlsxBytes'), 'App.jsx должен содержать генератор XLSX');
-assert.ok(appCode.includes('buildStructuredCsvString'), 'App.jsx должен содержать генератор структурированного CSV');
-assert.ok(appCode.includes('expenseForecastData'), 'App.jsx должен содержать планировщик расходов из анализа прошлых месяцев');
-assert.ok(appCode.includes('isBatchReceiptMode'), 'App.jsx должен поддерживать пакетный ввод чеков за выбранную дату');
-assert.ok(appCode.includes('Math.max(0, 100 - basePct - wantsPct)'), '50/30/20 должен использовать дополняющий процент до 100%');
+  // Test 3: Russian Bank Date & Currency Normalization (v0.7.0 Fix)
+  {
+    assert.strictEqual(normalizeImportedDate('26.10.2026'), '2026-10-26');
+    assert.strictEqual(normalizeImportedDate('05.09.2026 14:32:10'), '2026-09-05');
+    assert.strictEqual(normalizeImportedDate('15/08/2026'), '2026-08-15');
+    assert.strictEqual(normalizeImportedDate('2026-10-01T12:00:00Z'), '2026-10-01');
+    assert.strictEqual(normalizeImportedDate('07.11.26'), '2026-11-07');
 
-try {
-  const esbuild = require('esbuild');
-  const resApp = esbuild.transformSync(appCode, { loader: 'jsx' });
-  assert.ok(resApp.code.length > 50000, 'App.jsx успешно скомпилирован через esbuild');
-} catch (err) {
-  if (err.code !== 'MODULE_NOT_FOUND') throw err;
-  console.log('ℹ️ (esbuild не установлен локально, выполнена статическая проверка AST/структуры)');
+    assert.strictEqual(parseImportedAmount('-1 450,50 ₽'), 1451);
+    assert.strictEqual(parseImportedAmount('25 600,00 руб.'), 25600);
+    console.log('  ✅ Test 3 PASSED: Russian bank statement date & currency normalization');
+  }
+
+  // Test 4: Safe CSV/JSON Merge Deduplication vs Replace (v0.7.0 Fix)
+  {
+    const existing = [
+      { id: 101, date: '2026-10-20', type: 'expense', amount: 1850, title: 'ВкусВилл', account: 'family' },
+      { id: 102, date: '2026-10-18', type: 'expense', amount: 850, title: 'Домашний интернет', account: 'family' },
+    ];
+    const incoming = [
+      // Duplicate by signature (different ID, same date/type/amount/title/account)
+      { id: 999, date: '2026-10-20', type: 'expense', amount: 1850, title: 'вкусвилл', account: 'family' },
+      // Brand new item
+      { id: 103, date: '2026-10-22', type: 'expense', amount: 640, title: 'Аптека', account: 'personal' },
+    ];
+    const merged = mergeTransactions(existing, incoming);
+    assert.strictEqual(merged.addedCount, 1);
+    assert.strictEqual(merged.skippedCount, 1);
+    assert.strictEqual(merged.merged.length, 3);
+    console.log('  ✅ Test 4 PASSED: Non-destructive CSV/JSON Merge with duplicate filtering');
+  }
+
+  // Test 5: Historical Forecast & Debt Payoff
+  {
+    const sampleTxs = [
+      { id: 1, type: 'expense', amount: 12000, date: '2026-08-10', categoryId: 'Продукты' },
+      { id: 2, type: 'expense', amount: 15000, date: '2026-09-12', categoryId: 'Продукты' },
+      { id: 3, type: 'expense', amount: 8000, date: '2026-10-05', categoryId: 'Продукты' },
+    ];
+    const forecast = calculateHistoricalForecast(sampleTxs, [], '2026-10');
+    const groceries = forecast.categories.find((c) => c.categoryId === 'Продукты');
+    assert.ok(groceries);
+    assert.strictEqual(groceries.avgMonthly, 13500);
+    assert.strictEqual(groceries.currentSpent, 8000);
+    assert.strictEqual(groceries.predictedRemaining, 5500);
+
+    const payoff = calculateDebtPayoff({ totalAmount: 100000, paidAmount: 40000, monthlyPayment: 15000 });
+    assert.strictEqual(payoff.remaining, 60000);
+    assert.strictEqual(payoff.monthsLeft, 4);
+
+    assert.strictEqual(formatCompactCellAmount(850), '850');
+    assert.strictEqual(formatCompactCellAmount(3450), '3.5k');
+    assert.strictEqual(formatCompactCellAmount(25600), '26k');
+    console.log('  ✅ Test 5 PASSED: Historical forecast, debt payoff & compact mobile calendar formatting');
+  }
+
+  // Test 6: RFC 4180 CSV Parser
+  {
+    const rows = parseCsvText('ID,Дата,Название,Сумма\n1,26.10.2026,"Кафе ""Уют""",1250');
+    assert.strictEqual(rows.length, 2);
+    assert.strictEqual(rows[1][1], '26.10.2026');
+    assert.strictEqual(rows[1][2], 'Кафе "Уют"');
+    console.log('  ✅ Test 6 PASSED: RFC 4180 CSV parser');
+  }
+
+  console.log('🎉 All 6 test suites in unit-tests.cjs PASSED!');
 }
 
-console.log('✅ Тест 4 пройден!');
-console.log('\n🎉 ВСЕ ТЕСТЫ v0.6.5 УСПЕШНО ПРОЙДЕНЫ (EXIT CODE 0)!');
+runTests().catch((err) => {
+  console.error('❌ Unit test failure:', err);
+  process.exit(1);
+});

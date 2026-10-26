@@ -1,27 +1,27 @@
 {
-  "name": "family-budget",
+  "name": "family-budget-app",
   "private": true,
-  "version": "0.6.5",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/sync-standalone.cjs && vite build",
     "preview": "vite preview",
-    "test": "node scripts/unit-tests.cjs",
-    "test:standalone": "node scripts/test-standalone.cjs",
-    "sync:standalone": "node scripts/sync-standalone.cjs"
+    "sync": "node scripts/sync-standalone.cjs",
+    "test": "node scripts/unit-tests.cjs && node scripts/test-standalone.cjs"
   },
   "dependencies": {
-    "lucide-react": "^0.460.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "autoprefixer": "^10.4.20",
-    "esbuild": "^0.21.5",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.16",
-    "vite": "^5.4.11"
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "vite": "^5.2.0"
   }
 }

@@ -1,20 +1,83 @@
 const fs = require('fs');
 const path = require('path');
 
-const appPath = path.join(__dirname, '..', 'src', 'App.jsx');
+const srcDir = path.join(__dirname, '..', 'src');
 const standalonePath = path.join(__dirname, '..', 'standalone.html');
+const canvasBundlePath = process.env.CANVAS_OUT_PATH || path.join(__dirname, '..', '..', 'artifacts', 'file_generation', 'ttl=63d', 'output', 'FamilyBudgetApp_v0.6.5.jsx');
 
-const appCode = fs.readFileSync(appPath, 'utf8');
+// Topological order of modules
+const moduleFiles = [
+  'utils/dateUtils.js',
+  'utils/storage.js',
+  'utils/xlsx.js',
+  'utils/csv.js',
+  'utils/financeCore.js',
+  'hooks/useFocusTrap.js',
+  'components/analytics/ChartsSection.jsx',
+  'components/calendar/ReceiptCalendar.jsx',
+  'components/modals/ExportBackupModal.jsx',
+  'components/modals/TransactionModal.jsx',
+  'components/modals/EntityModals.jsx',
+  'App.jsx',
+];
 
-const codeWithoutImports = appCode.replace(/import\s+React.*?;\s*import\s+\{[^}]+\}\s+from\s+'lucide-react';\s*/s, '');
-const componentCode = codeWithoutImports.replace('export default function FamilyBudgetApp()', 'function FamilyBudgetApp()');
+function stripImportsAndExports(code, isAppFile = false) {
+  let cleaned = code
+    // Remove multi-line and single-line import statements
+    .replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?\s*/g, '')
+    // Replace named exports with plain declarations
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ');
 
+  if (!isAppFile) {
+    cleaned = cleaned.replace(/export\s+default\s+/g, '');
+  }
+  return cleaned.trim();
+}
+
+const processedModulesForCanvas = [];
+const processedModulesForStandalone = [];
+
+for (const relPath of moduleFiles) {
+  const fullPath = path.join(srcDir, relPath);
+  const rawCode = fs.readFileSync(fullPath, 'utf8');
+  const isApp = relPath === 'App.jsx';
+  const banner = `// ============================================================================\n// MODULE: src/${relPath}\n// ============================================================================`;
+
+  const canvasPart = `${banner}\n${stripImportsAndExports(rawCode, isApp)}`;
+  const standalonePart = `${banner}\n${stripImportsAndExports(rawCode, false).replace('export default function FamilyBudgetApp()', 'function FamilyBudgetApp()')}`;
+
+  processedModulesForCanvas.push(canvasPart);
+  processedModulesForStandalone.push(standalonePart);
+}
+
+// 1. Write single-file Canvas React bundle (with lucide-react imports & React.memo preserved)
+const canvasHeader = `import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+  Wallet, Plus, Calendar, User, X,
+  Sparkles, ChevronRight, ChevronLeft, Search, Trash2,
+  SlidersHorizontal, RotateCcw, Edit3, Check, LayoutGrid,
+  ListOrdered, Target, ArrowUpRight, ShieldCheck,
+  CheckCircle2, TrendingUp, BarChart3, Clock, Lock,
+  Download, Upload, FileSpreadsheet, Copy, Bell, Pin,
+  AlertTriangle, AlertCircle
+} from 'lucide-react';
+`;
+
+const finalCanvasCode = `${canvasHeader}\n${processedModulesForCanvas.join('\n\n')}\n`;
+
+if (fs.existsSync(path.dirname(canvasBundlePath))) {
+  fs.writeFileSync(canvasBundlePath, finalCanvasCode, 'utf8');
+  console.log('Canvas bundle updated successfully:', canvasBundlePath, 'Length:', finalCanvasCode.length);
+}
+
+// 2. Write standalone.html (single-file offline bundle with inline SVG icons)
 const standaloneHeader = `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный Бюджет v0.6.5 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.7.0 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -35,7 +98,7 @@ const standaloneHeader = `<!DOCTYPE html>
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo, useRef } = React;
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
     const createSvgIcon = (svgPath) => (props) => (
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className || "w-4 h-4"} {...props}>
@@ -73,6 +136,8 @@ const standaloneHeader = `<!DOCTYPE html>
     const Copy = createSvgIcon(<><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></>);
     const Bell = createSvgIcon(<><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></>);
     const Pin = createSvgIcon(<><line x1="12" x2="12" y1="17" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></>);
+    const AlertTriangle = createSvgIcon(<><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></>);
+    const AlertCircle = createSvgIcon(<><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></>);
 `;
 
 const standaloneFooter = `
@@ -82,7 +147,12 @@ const standaloneFooter = `
 </html>
 `;
 
-const indented = componentCode.split('\n').map(line => line ? '    ' + line : '').join('\n');
-const finalStandalone = standaloneHeader + '\n' + indented + '\n' + standaloneFooter;
+const bundledStandaloneBody = processedModulesForStandalone
+  .join('\n\n')
+  .split('\n')
+  .map((line) => (line ? '    ' + line : ''))
+  .join('\n');
+
+const finalStandalone = `${standaloneHeader}\n${bundledStandaloneBody}\n${standaloneFooter}`;
 fs.writeFileSync(standalonePath, finalStandalone, 'utf8');
-console.log('standalone.html v0.6.5 generated successfully! Length:', finalStandalone.length);
+console.log('standalone.html v0.7.0 generated successfully! Length:', finalStandalone.length);
