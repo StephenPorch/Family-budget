@@ -1,0 +1,30 @@
+﻿Тип_Записи;ID;Дата_или_День;Направление_или_Статус;Категория;Название_Комментарий;Сумма_или_Текущее_₽;Цель_или_Начальное_₽;Платеж_или_План_₽;Счет;Автор;Доп_Данные
+SUMMARY;sum_shared;2026-10-26;balance;Общий котел;Переходящий остаток общего котла;120400;120000;69100;shared;both;Безопасный лимит: 15175 ₽/дн.
+SUMMARY;sum_husband;2026-10-26;balance;Личный счет мужа;Переходящий остаток мужа;59800;28000;3200;personal;husband;
+SUMMARY;sum_wife;2026-10-26;balance;Личный счет жены;Переходящий остаток жены;49900;24000;4100;personal;wife;
+CATEGORY_PLAN;plan_Дом и ЖКУ;2026-10;base;Дом и ЖКУ;Прогноз из прошлых мес: 51200 ₽ (ср. 5850 ₽);6200;51200;51200;shared;both;AUTO
+CATEGORY_PLAN;plan_Продукты;2026-10;base;Продукты;Прогноз из прошлых мес: 22500 ₽ (ср. 22500 ₽);25700;22500;22500;shared;both;AUTO
+CATEGORY_PLAN;plan_Дети и секции;2026-10;base;Дети и секции;Прогноз из прошлых мес: 12000 ₽ (ср. 0 ₽);0;12000;12000;shared;both;AUTO
+CATEGORY_PLAN;plan_Транспорт и авто;2026-10;base;Транспорт и авто;Прогноз из прошлых мес: 5000 ₽ (ср. 5000 ₽);0;5000;5000;shared;both;AUTO
+CATEGORY_PLAN;plan_Кафе и еда вне дома;2026-10;wants;Кафе и еда вне дома;Прогноз из прошлых мес: 4000 ₽ (ср. 4000 ₽);2200;4000;4000;shared;both;AUTO
+CATEGORY_PLAN;plan_Связь и интернет;2026-10;base;Связь и интернет;Прогноз из прошлых мес: 2350 ₽ (ср. 0 ₽);0;2350;2350;shared;both;AUTO
+RECURRING;rec_1;5;mandatory;Дом и ЖКУ;Аренда / Ипотека;45000;;45000;shared;husband;2026-10
+RECURRING;rec_2;15;mandatory;Дом и ЖКУ;ЖКУ и капремонт;6200;;6200;shared;wife;2026-10
+RECURRING;rec_3;25;mandatory;Связь и интернет;Домашний интернет и ТВ;950;;950;shared;husband;
+RECURRING;rec_5;27;mandatory;Связь и интернет;Мобильная связь (2 номера);1400;;1400;shared;wife;
+RECURRING;rec_4;28;mandatory;Дети и секции;Детский сад / Секции;12000;;12000;shared;wife;
+DEBT;debt_1;12;active;Долги и кредиты;Автокредит;240000;600000;20000;shared;husband;"🚗;from-amber-500 to-rose-500;2026-10"
+DEBT;debt_2;26;active;Долги и кредиты;Рассрочка на технику;30000;90000;15000;shared;husband;"📱;from-blue-500 to-indigo-500;"
+GOAL;g1;;active;Накопления;Отпуск в горах;85000;200000;;shared;both;"🏔️;from-amber-500 to-orange-500"
+GOAL;g2;;active;Накопления;Подушка безопасности;310000;450000;;shared;both;"🛡️;from-emerald-500 to-teal-500"
+GOAL;g3;;active;Накопления;Апгрейд рабочего места;65000;120000;;shared;both;"🖥️;from-blue-500 to-indigo-500"
+TRANSACTION;1;2026-10-23;expense;Продукты;Супермаркет (ВкусВилл);25700;;;shared;husband;
+TRANSACTION;2;2026-10-23;expense;Кафе и еда вне дома;Кофейня и выпечка;2200;;;shared;wife;
+TRANSACTION;7;2026-10-22;expense;Развлечения и кино;Игры в Steam и гаджеты;3200;;;personal;husband;
+TRANSACTION;9;2026-10-21;expense;Шопинг и вещи;Косметика и уход;4100;;;personal;wife;
+TRANSACTION;3;2026-10-20;income;Зарплата;Аванс по проекту (в общий бюджет);120000;;;shared;husband;
+TRANSACTION;6;2026-10-19;income;Подработка;Фриланс (на личную карту);28000;;;personal;husband;
+TRANSACTION;4;2026-10-18;expense;Дом и ЖКУ;Оплата ЖКУ и капремонт;6200;;;shared;wife;rec:rec_2
+TRANSACTION;8;2026-10-17;income;Другое;Премия и кешбэк (личный счет);24000;;;personal;wife;
+TRANSACTION;5;2026-10-15;expense;Накопления;В копилку: Отпуск в горах;15000;;;shared;husband;goal:g1
+TRANSACTION;10;2026-10-12;expense;Долги и кредиты;Платёж по автокредиту;20000;;;shared;husband;debt:debt_1
