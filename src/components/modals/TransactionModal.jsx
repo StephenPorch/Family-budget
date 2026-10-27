@@ -130,11 +130,13 @@ export const TransactionModal = React.memo(function TransactionModal({
     >
       <div
         ref={modalRef}
-        className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[94vh] overflow-y-auto"
+        className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[94vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between pb-3 border-b border-stone-100">
-          <div className="flex items-center gap-2">
-            <Edit3 className="w-4 h-4 text-stone-600" />
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-xl bg-stone-100 text-stone-700 flex items-center justify-center shrink-0">
+              <Edit3 className="w-4 h-4" />
+            </span>
             <span id="add-modal-title" className="font-semibold text-stone-900 text-sm">
               {initialTx ? 'Редактирование операции' : 'Запись расхода / дохода'}
             </span>
@@ -143,20 +145,21 @@ export const TransactionModal = React.memo(function TransactionModal({
             type="button"
             onClick={onClose}
             aria-label="Закрыть модальное окно"
-            className="text-stone-500 hover:text-stone-800 p-1 rounded-lg"
+            className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         <form onSubmit={(e) => submitForm(e, false)} className="pt-4 space-y-4">
-          <div className="grid grid-cols-2 gap-1.5 bg-stone-100 p-1 rounded-2xl relative">
+          {/* Переключатель Расход / Доход — фиксированная высота h-10 */}
+          <div className="grid grid-cols-2 gap-1 bg-stone-100 p-1 rounded-xl h-10">
             <button
               type="button"
               disabled={isLockedType}
               onClick={() => handleTypeSwitch('expense')}
-              className={`py-2 text-xs font-semibold rounded-xl transition ${
-                txType === 'expense' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+              className={`h-8 text-xs font-semibold rounded-lg transition flex items-center justify-center ${
+                txType === 'expense' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
               } ${isLockedType ? 'cursor-not-allowed opacity-80' : ''}`}
             >
               Расход (−)
@@ -165,8 +168,8 @@ export const TransactionModal = React.memo(function TransactionModal({
               type="button"
               disabled={isLockedType}
               onClick={() => handleTypeSwitch('income')}
-              className={`py-2 text-xs font-semibold rounded-xl transition ${
-                txType === 'income' ? 'bg-white text-emerald-700 shadow-sm' : 'text-stone-600'
+              className={`h-8 text-xs font-semibold rounded-lg transition flex items-center justify-center ${
+                txType === 'income' ? 'bg-white text-emerald-700 shadow-sm' : 'text-stone-600 hover:text-stone-900'
               } ${isLockedType ? 'cursor-not-allowed opacity-80' : ''}`}
             >
               Доход (+)
@@ -174,13 +177,14 @@ export const TransactionModal = React.memo(function TransactionModal({
           </div>
 
           {isLockedType && (
-            <div className="flex items-center gap-1.5 text-[11px] text-amber-900 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
-              <Lock className="w-3.5 h-3.5 shrink-0" />
+            <div className="flex items-center gap-2 text-xs text-amber-900 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200">
+              <Lock className="w-4 h-4 shrink-0" />
               <span>Тип и категория заблокированы, так как операция связана с копилкой, кредитом или регулярным счетом</span>
             </div>
           )}
 
-          <div>
+          {/* Блок ввода суммы + быстрые чипы фиксированной высоты h-8 */}
+          <div className="space-y-2">
             <div className="relative">
               <input
                 type="number"
@@ -193,43 +197,47 @@ export const TransactionModal = React.memo(function TransactionModal({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 aria-label="Сумма операции в рублях"
-                className="w-full text-3xl font-bold pl-4 pr-12 py-3 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                className="w-full h-14 text-2xl sm:text-3xl font-bold pl-4 pr-12 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
               />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xl font-bold text-stone-500 pointer-events-none">
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xl font-bold text-stone-400 pointer-events-none">
                 ₽
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto pt-2 pb-0.5">
+            <div className="grid grid-cols-6 gap-1.5">
               {[100, 300, 500, 1000, 3000].map(v => (
                 <button
                   key={v}
                   type="button"
                   onClick={() => setAmount(String((Number(amount) || 0) + v))}
-                  className="px-2.5 py-1 rounded-xl bg-stone-100 hover:bg-stone-200 text-xs font-medium text-stone-700 whitespace-nowrap transition"
+                  className="h-8 rounded-lg bg-stone-100 hover:bg-stone-200 text-xs font-semibold text-stone-700 transition flex items-center justify-center tabular-nums"
                 >
                   +{v}
                 </button>
               ))}
-              {amount && (
-                <button
-                  type="button"
-                  onClick={() => setAmount('')}
-                  className="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-xs font-medium text-rose-700 whitespace-nowrap transition ml-auto"
-                >
-                  Сброс
-                </button>
-              )}
+              <button
+                type="button"
+                disabled={!amount}
+                onClick={() => setAmount('')}
+                className={`h-8 rounded-lg text-xs font-semibold transition flex items-center justify-center ${
+                  amount
+                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700'
+                    : 'bg-stone-50 text-stone-300 cursor-not-allowed'
+                }`}
+              >
+                Сброс
+              </button>
             </div>
           </div>
 
-          <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200/80 space-y-2.5">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
+          {/* Блок даты и пакетного режима — все элементы выровнены по сетке h-9 */}
+          <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-semibold text-stone-800 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-amber-600" />
-                <span>Дата чека / операции:</span>
+                <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>Дата операции:</span>
               </label>
-              <div className="flex items-center gap-1">
+              <div className="grid grid-cols-3 gap-1">
                 {[
                   { label: 'Сегодня', val: getLocalDateString() },
                   { label: 'Вчера', val: getOffsetDateString(-1) },
@@ -239,7 +247,7 @@ export const TransactionModal = React.memo(function TransactionModal({
                     key={btn.label}
                     type="button"
                     onClick={() => setTxDate(btn.val)}
-                    className={`px-2 py-1 rounded-lg text-[11px] font-medium transition ${
+                    className={`h-7 px-2 rounded-lg text-xs font-medium transition flex items-center justify-center ${
                       txDate === btn.val
                         ? 'bg-stone-900 text-white'
                         : 'bg-white border border-stone-200 text-stone-700 hover:text-stone-900'
@@ -257,38 +265,39 @@ export const TransactionModal = React.memo(function TransactionModal({
                 value={txDate}
                 onChange={(e) => setTxDate(e.target.value)}
                 aria-label="Дата операции"
-                className="flex-1 text-xs font-semibold px-3 py-2 bg-white border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                className="flex-1 h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
               />
               {!initialTx && (
                 <button
                   type="button"
                   onClick={() => setIsBatchReceiptMode(!isBatchReceiptMode)}
-                  className={`px-2.5 py-2 rounded-xl text-[11px] font-semibold border transition flex items-center gap-1 shrink-0 ${
+                  className={`h-9 px-3 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 shrink-0 ${
                     isBatchReceiptMode
                       ? 'bg-amber-100 border-amber-300 text-amber-950'
                       : 'bg-white border-stone-200 text-stone-700 hover:text-stone-900'
                   }`}
                   title="Не закрывать окно после записи и сохранять выбранную дату для ввода нескольких чеков подряд"
                 >
-                  <Pin className="w-3 h-3" />
+                  <Pin className="w-3.5 h-3.5 shrink-0" />
                   <span>Пачка чеков</span>
                 </button>
               )}
             </div>
           </div>
 
+          {/* Источник / получатель средств — фиксированная высота h-10 */}
           <div>
-            <label className="text-[11px] font-medium text-stone-600 block mb-1">
+            <label className="text-xs font-medium text-stone-600 block mb-1.5">
               Источник / получатель средств:
             </label>
-            <div className="grid grid-cols-3 gap-1.5 bg-stone-100 p-1 rounded-2xl">
+            <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl h-10">
               <button
                 type="button"
                 onClick={() => {
                   setSelectedAccount('shared');
                   setTxAuthor(currentUser);
                 }}
-                className={`py-2 px-1 text-xs font-semibold rounded-xl transition truncate text-center ${
+                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
                   selectedAccount === 'shared'
                     ? 'bg-stone-900 text-white shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
@@ -303,7 +312,7 @@ export const TransactionModal = React.memo(function TransactionModal({
                   setSelectedAccount('personal');
                   setTxAuthor('husband');
                 }}
-                className={`py-2 px-1 text-xs font-semibold rounded-xl transition truncate text-center ${
+                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
                   selectedAccount === 'personal' && txAuthor === 'husband'
                     ? 'bg-stone-900 text-white shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
@@ -318,7 +327,7 @@ export const TransactionModal = React.memo(function TransactionModal({
                   setSelectedAccount('personal');
                   setTxAuthor('wife');
                 }}
-                className={`py-2 px-1 text-xs font-semibold rounded-xl transition truncate text-center ${
+                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
                   selectedAccount === 'personal' && txAuthor === 'wife'
                     ? 'bg-stone-900 text-white shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
@@ -329,8 +338,9 @@ export const TransactionModal = React.memo(function TransactionModal({
             </div>
           </div>
 
+          {/* Категории — все кнопки фиксированной высоты h-10 */}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-stone-600">
                 Категория
               </label>
@@ -355,7 +365,7 @@ export const TransactionModal = React.memo(function TransactionModal({
             </div>
 
             {isAddingCustomCategory && (
-              <div className="p-3 bg-stone-50 border border-stone-200 rounded-2xl mb-3 space-y-2 animate-fade-in">
+              <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl mb-3 space-y-2 animate-fade-in">
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -363,7 +373,7 @@ export const TransactionModal = React.memo(function TransactionModal({
                     value={newCatIcon}
                     onChange={(e) => setNewCatIcon(e.target.value)}
                     aria-label="Эмодзи категории"
-                    className="w-12 text-center text-base p-2 bg-white border border-stone-200 rounded-xl focus:outline-none"
+                    className="w-10 h-9 text-center text-base bg-white border border-stone-200 rounded-lg focus:outline-none shrink-0"
                   />
                   <input
                     type="text"
@@ -371,25 +381,25 @@ export const TransactionModal = React.memo(function TransactionModal({
                     value={newCatName}
                     onChange={(e) => setNewCatName(e.target.value)}
                     aria-label="Название новой категории"
-                    className="flex-1 text-xs p-2.5 bg-white border border-stone-200 rounded-xl focus:outline-none"
+                    className="flex-1 h-9 text-xs px-3 bg-white border border-stone-200 rounded-lg focus:outline-none"
                   />
                   <button
                     type="button"
                     onClick={handleAddCategory}
                     aria-label="Сохранить категорию"
-                    className="px-3 py-2 bg-stone-900 text-white rounded-xl text-xs font-semibold hover:bg-stone-800 transition"
+                    className="w-9 h-9 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-stone-800 transition flex items-center justify-center shrink-0"
                   >
                     <Check className="w-4 h-4" />
                   </button>
                 </div>
                 {txType === 'expense' && (
-                  <div className="flex items-center justify-between text-[11px] pt-1">
+                  <div className="flex items-center justify-between text-xs pt-1">
                     <span className="text-stone-600">Корзина 50/30/20:</span>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => setNewCatBucket('base')}
-                        className={`px-2 py-1 rounded-lg font-medium ${
+                        className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
                           newCatBucket === 'base' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
                         }`}
                       >
@@ -398,7 +408,7 @@ export const TransactionModal = React.memo(function TransactionModal({
                       <button
                         type="button"
                         onClick={() => setNewCatBucket('wants')}
-                        className={`px-2 py-1 rounded-lg font-medium ${
+                        className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
                           newCatBucket === 'wants' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
                         }`}
                       >
@@ -417,13 +427,13 @@ export const TransactionModal = React.memo(function TransactionModal({
                     type="button"
                     disabled={isLockedType}
                     onClick={() => setSelectedCategory(c.name)}
-                    className={`w-full px-2.5 py-2 rounded-2xl flex items-center gap-2 text-left border transition ${
+                    className={`w-full h-10 px-2.5 rounded-xl flex items-center gap-2 text-left border transition ${
                       selectedCategory === c.name
                         ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
-                        : 'border-stone-200/70 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                        : 'border-stone-200/80 bg-stone-50 text-stone-700 hover:bg-stone-100'
                     } ${isLockedType ? 'opacity-75 cursor-not-allowed' : ''}`}
                   >
-                    <span className="text-base shrink-0">{c.icon}</span>
+                    <span className="text-sm shrink-0">{c.icon}</span>
                     <span className="text-xs font-medium truncate">{c.name}</span>
                   </button>
                   {isManagingCategories && c.id.startsWith('cat_') && (
@@ -441,6 +451,7 @@ export const TransactionModal = React.memo(function TransactionModal({
             </div>
           </div>
 
+          {/* Комментарий — фиксированная высота h-10 */}
           <div>
             <input
               type="text"
@@ -448,23 +459,24 @@ export const TransactionModal = React.memo(function TransactionModal({
               value={txTitle}
               onChange={(e) => setTxTitle(e.target.value)}
               aria-label="Комментарий к операции"
-              className="w-full text-xs px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+              className="w-full h-10 text-xs px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
             />
           </div>
 
+          {/* Кнопки действия — фиксированная высота h-11 */}
           <div className="flex items-center gap-2 pt-1">
             {initialTx ? (
               <>
                 <button
                   type="button"
                   onClick={(e) => onDeleteTransaction(initialTx.id, e)}
-                  className="px-4 py-3.5 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-2xl font-semibold text-xs transition"
+                  className="h-11 px-4 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-xl font-semibold text-xs transition inline-flex items-center justify-center"
                 >
                   Удалить
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3.5 bg-stone-900 text-white rounded-2xl font-semibold text-sm hover:bg-stone-800 transition shadow-md"
+                  className="flex-1 h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition shadow-sm inline-flex items-center justify-center"
                 >
                   Сохранить изменения
                 </button>
@@ -474,14 +486,14 @@ export const TransactionModal = React.memo(function TransactionModal({
                 <button
                   type="button"
                   onClick={(e) => submitForm(e, true)}
-                  className="px-3.5 py-3.5 bg-amber-100 hover:bg-amber-200 text-amber-950 rounded-2xl font-semibold text-xs transition shrink-0"
+                  className="h-11 px-3.5 bg-amber-100 hover:bg-amber-200 text-amber-950 rounded-xl font-semibold text-xs transition shrink-0 inline-flex items-center justify-center"
                   title="Сохранить этот чек и сразу ввести следующий за эту же дату"
                 >
                   + Ещё чек
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3.5 bg-stone-900 text-white rounded-2xl font-semibold text-sm hover:bg-stone-800 transition active:scale-[0.99] shadow-md"
+                  className="flex-1 h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition active:scale-[0.99] shadow-sm inline-flex items-center justify-center tabular-nums"
                 >
                   {isBatchReceiptMode ? `Записать за ${txDate.slice(8, 10)}.${txDate.slice(5, 7)}` : 'Записать'}
                 </button>

@@ -2354,7 +2354,8 @@ export default function FamilyBudgetApp() {
     return { list, maxVal };
   }, [transactions, selectedMonth, activeWalletCard]);
 
-  // Карточка одной строки операции
+
+  // Карточка одной строки операции (выровнена по модульной сетке 4px/8px и tabular-nums)
   const renderTransactionRow = (tx) => {
     const catObj = getCategoryMeta(tx.category, tx.type, customCategories);
     const isExpense = tx.type === 'expense';
@@ -2372,53 +2373,53 @@ export default function FamilyBudgetApp() {
             openEditTransactionModal(tx);
           }
         }}
-        className="py-3 px-2.5 flex items-center justify-between hover:bg-stone-50 rounded-2xl transition cursor-pointer group"
+        className="min-h-[60px] py-2.5 px-3 flex items-center justify-between gap-3 hover:bg-stone-50 rounded-xl transition cursor-pointer group"
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center text-base ${catObj.color}`}>
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-base ${catObj.color}`}>
             {catObj.icon}
           </div>
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-stone-900 truncate flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-stone-900 flex items-center gap-1.5 min-w-0">
               <span className="truncate">{tx.title}</span>
               {tx.goalId && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 font-medium shrink-0">
+                <span className="h-5 px-1.5 rounded-md bg-violet-50 text-violet-700 text-[10px] font-semibold inline-flex items-center shrink-0">
                   🎯 Копилка
                 </span>
               )}
               {tx.debtId && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 font-medium shrink-0">
+                <span className="h-5 px-1.5 rounded-md bg-rose-50 text-rose-700 text-[10px] font-semibold inline-flex items-center shrink-0">
                   💳 Долг
                 </span>
               )}
               {tx.recurringId && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-medium shrink-0">
+                <span className="h-5 px-1.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-semibold inline-flex items-center shrink-0">
                   🛡️ Постоянный
                 </span>
               )}
             </div>
-            <div className="text-xs text-stone-600 flex items-center gap-1.5 mt-0.5 flex-wrap">
-              <span className="truncate">{catObj.name}</span>
-              <span className="text-stone-400">•</span>
-              <span className="inline-flex items-center gap-1 text-stone-700">
+            <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5 truncate">
+              <span className="truncate font-medium text-stone-600">{catObj.name}</span>
+              <span className="text-stone-300">•</span>
+              <span className="inline-flex items-center gap-1 text-stone-600 shrink-0">
                 <span>{tx.author === 'husband' ? '🧔🏻‍♂️' : '👩🏼'}</span>
                 <span>{isShared ? 'Общий' : 'Личный'}</span>
               </span>
-              <span className="text-stone-400">•</span>
-              <span className="text-stone-500 font-mono text-[11px]">{tx.date}</span>
+              <span className="text-stone-300">•</span>
+              <span className="text-stone-500 font-mono text-[11px] tabular-nums shrink-0">{tx.date}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0 ml-3">
-          <div className={`text-sm font-semibold tracking-tight text-right ${isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
             {isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
           </div>
           <button
             type="button"
             onClick={(e) => handleDeleteTransaction(tx.id, e)}
             aria-label={`Удалить операцию ${tx.title}`}
-            className="text-stone-500 hover:text-rose-600 p-1.5 rounded-xl hover:bg-rose-50 transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+            className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition shrink-0"
             title="Удалить"
           >
             <Trash2 className="w-4 h-4" />
@@ -2429,58 +2430,63 @@ export default function FamilyBudgetApp() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-28 md:pb-12">
-      {/* Верхний бар управления */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-stone-200/80">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-2">
-          {/* Бренд + селектор периода */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm text-sm shrink-0">
+    <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-24 md:pb-12">
+      {/* Верхний бар управления — все контролы выровнены по единой высоте h-10 (40px) */}
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-stone-200/80">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-3">
+          {/* Левый блок: Бренд + фиксированный капсульный селектор периода */}
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm text-base shrink-0">
               💎
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm sm:text-base font-semibold tracking-tight text-stone-900 leading-tight">
+            <div className="hidden sm:block min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-sm font-bold tracking-tight text-stone-900 truncate">
                   Семейный Бюджет
                 </h1>
-                <span className="inline-block text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold">
+                <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
                   v0.7.0
                 </span>
               </div>
-              <div className="flex items-center gap-1 mt-0.5">
-                <button
-                  type="button"
-                  onClick={() => stepMonth(-1)}
-                  aria-label="Предыдущий месяц"
-                  className="p-0.5 text-stone-500 hover:text-stone-900 rounded transition"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCalendarDate(null);
-                    setSelectedMonth(selectedMonth === 'all' ? getCurrentMonthPrefix() : 'all');
-                  }}
-                  className="text-xs font-medium text-stone-600 hover:text-stone-900 transition"
-                  title="Нажмите для переключения: Месяц / За всё время"
-                >
-                  {formatMonthTitle(selectedMonth)}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => stepMonth(1)}
-                  aria-label="Следующий месяц"
-                  className="p-0.5 text-stone-500 hover:text-stone-900 rounded transition"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
+                Совместный учет и планирование
+              </p>
+            </div>
+
+            {/* Капсула выбора месяца с фиксированной шириной текста min-w-[112px] — исключает сдвиги шапки */}
+            <div className="h-10 px-1 bg-stone-100 border border-stone-200/80 rounded-xl flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => stepMonth(-1)}
+                aria-label="Предыдущий месяц"
+                className="w-7 h-8 flex items-center justify-center text-stone-600 hover:text-stone-900 hover:bg-white rounded-lg transition"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCalendarDate(null);
+                  setSelectedMonth(selectedMonth === 'all' ? getCurrentMonthPrefix() : 'all');
+                }}
+                className="min-w-[108px] sm:min-w-[116px] h-8 px-2 rounded-lg text-xs font-semibold text-stone-800 hover:bg-white transition text-center whitespace-nowrap tabular-nums"
+                title="Нажмите для переключения: Месяц / За всё время"
+              >
+                {formatMonthTitle(selectedMonth)}
+              </button>
+              <button
+                type="button"
+                onClick={() => stepMonth(1)}
+                aria-label="Следующий месяц"
+                className="w-7 h-8 flex items-center justify-center text-stone-600 hover:text-stone-900 hover:bg-white rounded-lg transition"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          {/* Навигация по 4 вкладкам (Desktop) */}
-          <nav className="hidden md:flex items-center gap-1 bg-stone-100 p-1 rounded-2xl border border-stone-200/60" aria-label="Разделы приложения">
+          {/* Навигация по 4 вкладкам (Desktop) — фиксированная высота h-10 */}
+          <nav className="hidden lg:flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-10 shrink-0" aria-label="Разделы приложения">
             {[
               { id: 'dashboard', label: 'Обзор', icon: LayoutGrid },
               { id: 'history', label: 'Операции и чеки', icon: ListOrdered, badge: periodTransactions.length },
@@ -2494,21 +2500,21 @@ export default function FamilyBudgetApp() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  className={`h-8 px-3 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
                     isActive
                       ? 'bg-white text-stone-900 shadow-sm'
                       : 'text-stone-600 hover:text-stone-900'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
                   <span>{tab.label}</span>
                   {tab.badge !== null && tab.badge !== undefined && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    <span className={`min-w-[20px] h-5 px-1.5 rounded-md text-[10px] inline-flex items-center justify-center tabular-nums ${
                       tab.alert
-                        ? 'bg-amber-100 text-amber-800 font-bold'
+                        ? 'bg-amber-100 text-amber-900 font-bold'
                         : isActive
-                        ? 'bg-stone-100 text-stone-700'
-                        : 'text-stone-500'
+                        ? 'bg-stone-100 text-stone-700 font-semibold'
+                        : 'bg-stone-200/70 text-stone-600'
                     }`}>
                       {tab.badge}
                     </span>
@@ -2518,32 +2524,32 @@ export default function FamilyBudgetApp() {
             })}
           </nav>
 
-          {/* Правый блок: Переключатель профиля + Бэкап/XLSX + Кнопка быстрой записи */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <div className="flex items-center bg-stone-100 p-1 rounded-2xl border border-stone-200/70">
+          {/* Правый блок: все кнопки строго высоты h-10 */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-10">
               <button
                 type="button"
                 onClick={() => setCurrentUser('husband')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium transition-all ${
+                className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
                   currentUser === 'husband'
                     ? 'bg-white text-stone-900 shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
                 <span>🧔🏻‍♂️</span>
-                <span className="hidden lg:inline">Муж</span>
+                <span className="hidden xl:inline">Муж</span>
               </button>
               <button
                 type="button"
                 onClick={() => setCurrentUser('wife')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-xl text-xs font-medium transition-all ${
+                className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
                   currentUser === 'wife'
                     ? 'bg-white text-stone-900 shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
                 <span>👩🏼</span>
-                <span className="hidden lg:inline">Жена</span>
+                <span className="hidden xl:inline">Жена</span>
               </button>
             </div>
 
@@ -2551,7 +2557,7 @@ export default function FamilyBudgetApp() {
               type="button"
               onClick={() => setIsExportModalOpen(true)}
               aria-label="Экспорт в Excel, CSV и резервная копия"
-              className="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-2xl transition border border-stone-200/80"
+              className="h-10 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition border border-stone-200/80 flex items-center gap-1.5 shrink-0"
               title="Экспорт в XLSX / CSV / AI и резервная копия"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -2561,9 +2567,9 @@ export default function FamilyBudgetApp() {
             <button
               type="button"
               onClick={() => openNewTransactionModal()}
-              className="hidden sm:flex items-center gap-1.5 bg-stone-900 text-white hover:bg-stone-800 text-xs font-semibold px-3.5 py-2 rounded-2xl transition shadow-sm"
+              className="hidden sm:flex h-10 px-3.5 rounded-xl bg-stone-900 text-white hover:bg-stone-800 text-xs font-semibold transition shadow-sm items-center gap-1.5 shrink-0"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 shrink-0" />
               <span>Записать</span>
             </button>
           </div>
@@ -2574,19 +2580,19 @@ export default function FamilyBudgetApp() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-5">
         {/* ================= ВКЛАДКА 1: ОБЗОР (ДАШБОРД) ================= */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-6 animate-fade-in">
+          <div className="space-y-5 animate-fade-in">
             {/* УМНАЯ НАПОМИНАЛКА О ГОРЯЩИХ И ПРОСРОЧЕННЫХ ОБЯЗАТЕЛЬНЫХ ПЛАТЕЖАХ */}
             {reminderSummary.urgentRecs.length > 0 && (
-              <div className="bg-amber-50/90 border border-amber-200/90 rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-                <div className="flex items-start sm:items-center gap-3">
-                  <div className="w-9 h-9 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+              <div className="bg-amber-50/95 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                <div className="flex items-start sm:items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
                     <Bell className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-amber-950 flex items-center gap-2 flex-wrap">
-                      <span>Напоминалка по постоянным расходам ({reminderSummary.urgentRecs.length})</span>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-amber-950">
+                      Напоминалка по постоянным расходам ({reminderSummary.urgentRecs.length})
                     </div>
-                    <div className="text-xs text-amber-900 mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
+                    <div className="text-xs text-amber-900 mt-0.5 flex flex-wrap gap-x-3 gap-y-1 tabular-nums">
                       {reminderSummary.urgentRecs.slice(0, 3).map(r => (
                         <span key={r.id} className="inline-flex items-center gap-1">
                           <strong>{r.title}</strong>: {Number(r.amount).toLocaleString('ru-RU')} ₽ ({r.status.label})
@@ -2600,7 +2606,7 @@ export default function FamilyBudgetApp() {
                     <button
                       type="button"
                       onClick={() => openPayRecurringModal(reminderSummary.urgentRecs[0])}
-                      className="px-3 py-1.5 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition"
+                      className="h-9 px-3.5 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center"
                     >
                       Оплатить сейчас
                     </button>
@@ -2608,7 +2614,7 @@ export default function FamilyBudgetApp() {
                   <button
                     type="button"
                     onClick={() => setActiveTab('debts')}
-                    className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-950 text-xs font-semibold hover:bg-amber-100 transition"
+                    className="h-9 px-3.5 rounded-xl bg-white border border-amber-300 text-amber-950 text-xs font-semibold hover:bg-amber-100 transition inline-flex items-center"
                   >
                     К списку платежей →
                   </button>
@@ -2616,41 +2622,46 @@ export default function FamilyBudgetApp() {
               </div>
             )}
 
-            {/* 3 КУМУЛЯТИВНЫХ ОСТАТКА + БЕЗОПАСНЫЙ ЛИМИТ / ИНДИКАТОР КАССОВОГО РАЗРЫВА */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            {/* 4 KPI-КАРТОЧКИ С ЖЕСТКОЙ МОДУЛЬНОЙ ВЫСОТОЙ h-[160px] И ЕДИНОЙ 3-ЗОННОЙ АНАТОМИЕЙ */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-stretch">
               {/* 1. Общий котел */}
               <div
                 onClick={() => setActiveWalletCard('shared')}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('shared'); }}
-                className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
+                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
                   activeWalletCard === 'shared'
                     ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
                     : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
                 }`}
               >
-                <div className="flex items-center justify-between text-stone-600 text-xs font-medium">
-                  <span className="uppercase tracking-wider font-semibold text-[10px] sm:text-xs flex items-center gap-1">
-                    <span>👥</span> Общий котел
+                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
+                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                    <span>👥</span>
+                    <span className="truncate">Общий котел</span>
                   </span>
-                  <Wallet className="w-4 h-4 text-stone-500 shrink-0" />
+                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
+                    Семья
+                  </span>
                 </div>
-                <div className="my-2.5">
-                  <div className={`text-lg sm:text-2xl font-bold tracking-tight truncate ${
+
+                <div className="my-auto">
+                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
                     stats.shared.balance < 0 ? 'text-rose-600' : 'text-stone-900'
                   }`}>
                     {stats.shared.balance.toLocaleString('ru-RU')} ₽
                   </div>
-                  <div className={`text-[11px] mt-0.5 ${
+                  <div className={`text-xs mt-1.5 truncate ${
                     stats.shared.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
                   }`}>
                     {stats.shared.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
                   </div>
                 </div>
-                <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-1 text-[11px]">
-                  <span className="text-emerald-700 font-medium truncate">+{stats.shared.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-medium truncate">−{stats.shared.monthExpense.toLocaleString('ru-RU')}</span>
+
+                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
+                  <span className="text-emerald-700 font-semibold truncate">+{stats.shared.monthIncome.toLocaleString('ru-RU')}</span>
+                  <span className="text-rose-600 font-semibold truncate">−{stats.shared.monthExpense.toLocaleString('ru-RU')}</span>
                 </div>
               </div>
 
@@ -2660,33 +2671,38 @@ export default function FamilyBudgetApp() {
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('husband'); }}
-                className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
+                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
                   activeWalletCard === 'husband'
                     ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
                     : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
                 }`}
               >
-                <div className="flex items-center justify-between text-stone-600 text-xs font-medium">
-                  <span className="uppercase tracking-wider font-semibold text-[10px] sm:text-xs flex items-center gap-1">
-                    <span>🧔🏻‍♂️</span> Муж (Личный)
+                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
+                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                    <span>🧔🏻‍♂️</span>
+                    <span className="truncate">Муж (Личный)</span>
                   </span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-600 font-medium">Свой</span>
+                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
+                    Свой
+                  </span>
                 </div>
-                <div className="my-2.5">
-                  <div className={`text-lg sm:text-2xl font-bold tracking-tight truncate ${
+
+                <div className="my-auto">
+                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
                     stats.husbandPersonal.balance < 0 ? 'text-rose-600' : 'text-stone-900'
                   }`}>
                     {stats.husbandPersonal.balance.toLocaleString('ru-RU')} ₽
                   </div>
-                  <div className={`text-[11px] mt-0.5 ${
+                  <div className={`text-xs mt-1.5 truncate ${
                     stats.husbandPersonal.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
                   }`}>
                     {stats.husbandPersonal.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
                   </div>
                 </div>
-                <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-1 text-[11px]">
-                  <span className="text-emerald-700 font-medium truncate">+{stats.husbandPersonal.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-medium truncate">−{stats.husbandPersonal.monthExpense.toLocaleString('ru-RU')}</span>
+
+                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
+                  <span className="text-emerald-700 font-semibold truncate">+{stats.husbandPersonal.monthIncome.toLocaleString('ru-RU')}</span>
+                  <span className="text-rose-600 font-semibold truncate">−{stats.husbandPersonal.monthExpense.toLocaleString('ru-RU')}</span>
                 </div>
               </div>
 
@@ -2696,44 +2712,49 @@ export default function FamilyBudgetApp() {
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('wife'); }}
-                className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
+                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
                   activeWalletCard === 'wife'
                     ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
                     : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
                 }`}
               >
-                <div className="flex items-center justify-between text-stone-600 text-xs font-medium">
-                  <span className="uppercase tracking-wider font-semibold text-[10px] sm:text-xs flex items-center gap-1">
-                    <span>👩🏼</span> Жена (Личный)
+                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
+                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                    <span>👩🏼</span>
+                    <span className="truncate">Жена (Личный)</span>
                   </span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-600 font-medium">Свой</span>
+                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
+                    Свой
+                  </span>
                 </div>
-                <div className="my-2.5">
-                  <div className={`text-lg sm:text-2xl font-bold tracking-tight truncate ${
+
+                <div className="my-auto">
+                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
                     stats.wifePersonal.balance < 0 ? 'text-rose-600' : 'text-stone-900'
                   }`}>
                     {stats.wifePersonal.balance.toLocaleString('ru-RU')} ₽
                   </div>
-                  <div className={`text-[11px] mt-0.5 ${
+                  <div className={`text-xs mt-1.5 truncate ${
                     stats.wifePersonal.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
                   }`}>
                     {stats.wifePersonal.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
                   </div>
                 </div>
-                <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-1 text-[11px]">
-                  <span className="text-emerald-700 font-medium truncate">+{stats.wifePersonal.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-medium truncate">−{stats.wifePersonal.monthExpense.toLocaleString('ru-RU')}</span>
+
+                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
+                  <span className="text-emerald-700 font-semibold truncate">+{stats.wifePersonal.monthIncome.toLocaleString('ru-RU')}</span>
+                  <span className="text-rose-600 font-semibold truncate">−{stats.wifePersonal.monthExpense.toLocaleString('ru-RU')}</span>
                 </div>
               </div>
 
-              {/* 4. Безопасный лимит в день / Индикатор кассового разрыва */}
-              <div className={`text-white p-4 sm:p-5 rounded-3xl shadow-md flex flex-col justify-between ${
+              {/* 4. Безопасный лимит в день / Индикатор кассового разрыва (строго 2 строки в центре + футер = 160px) */}
+              <div className={`h-[160px] text-white p-4 sm:p-5 rounded-2xl shadow-md flex flex-col justify-between ${
                 stats.hasCashGap
                   ? 'bg-gradient-to-br from-rose-900 to-stone-900'
                   : 'bg-gradient-to-br from-stone-900 to-stone-800'
               }`}>
-                <div className="flex items-center justify-between text-stone-200 text-xs font-medium">
-                  <span className="uppercase tracking-wider font-semibold text-[10px] sm:text-xs truncate">
+                <div className="h-6 flex items-center justify-between gap-1 text-stone-200">
+                  <span className="uppercase tracking-wider font-semibold text-xs truncate">
                     {stats.hasCashGap ? 'Кассовый разрыв' : stats.isPastMonth ? 'Итог месяца' : 'Безопасный лимит'}
                   </span>
                   {stats.hasCashGap ? (
@@ -2742,22 +2763,23 @@ export default function FamilyBudgetApp() {
                     <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
                   )}
                 </div>
-                <div className="my-2.5">
+
+                <div className="my-auto">
                   {stats.hasCashGap ? (
                     <>
-                      <div className="text-lg sm:text-2xl font-bold tracking-tight text-rose-300 truncate">
+                      <div className="text-xl sm:text-2xl font-bold tracking-tight text-rose-300 tabular-nums leading-none truncate">
                         −{stats.cashGapAmount.toLocaleString('ru-RU')} ₽
                       </div>
-                      <div className="text-[11px] text-rose-200 mt-0.5 truncate">
+                      <div className="text-xs text-rose-200 mt-1.5 truncate">
                         Не хватает на обязательные счета
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="text-lg sm:text-2xl font-bold tracking-tight text-amber-300 truncate">
+                      <div className="text-xl sm:text-2xl font-bold tracking-tight text-amber-300 tabular-nums leading-none truncate">
                         {stats.dailyAvailable.toLocaleString('ru-RU')} {stats.isPastMonth ? '₽' : '₽/день'}
                       </div>
-                      <div className="text-[11px] text-stone-300 mt-0.5 truncate">
+                      <div className="text-xs text-stone-300 mt-1.5 truncate tabular-nums">
                         {stats.isPastMonth
                           ? 'Период завершен'
                           : activeWalletCard === 'shared'
@@ -2768,30 +2790,28 @@ export default function FamilyBudgetApp() {
                       </div>
                     </>
                   )}
-                  {!stats.isPastMonth && (
-                    stats.reserveToDeduct > 0 ? (
-                      <div className="text-[10px] text-amber-300 font-medium mt-1 flex items-center gap-1">
-                        <ShieldCheck className="w-3 h-3 shrink-0" />
-                        <span>Резерв счетов: {stats.reserveToDeduct.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                    ) : (
-                      <div className="text-[10px] text-emerald-400 font-medium mt-1 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 shrink-0" />
-                        <span>Обязательные счета закрыты</span>
-                      </div>
-                    )
-                  )}
                 </div>
-                <div className="pt-2 border-t border-stone-700/60 text-[11px] text-stone-300 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 truncate">
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                    <span>Отложено/кредиты: {stats.activeSavedAndDebtPaid.toLocaleString('ru-RU')} ₽</span>
+
+                <div className="h-7 pt-2 border-t border-stone-700/70 text-xs text-stone-300 flex items-center justify-between gap-2 tabular-nums">
+                  {!stats.isPastMonth && stats.reserveToDeduct > 0 ? (
+                    <span className="text-amber-300 font-medium flex items-center gap-1 truncate" title="Резерв на неоплаченные обязательные счета">
+                      <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Резерв: {stats.reserveToDeduct.toLocaleString('ru-RU')} ₽</span>
+                    </span>
+                  ) : (
+                    <span className="text-emerald-400 font-medium flex items-center gap-1 truncate">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Счета закрыты</span>
+                    </span>
+                  )}
+                  <span className="text-stone-300 font-semibold shrink-0" title="Отложено в копилки и погашено кредитов">
+                    🎯 {stats.activeSavedAndDebtPaid.toLocaleString('ru-RU')} ₽
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* МЕМОИЗИРОВАННЫЙ БЛОК SVG-ГРАФИКОВ */}
+            {/* МЕМОИЗИРОВАННЫЙ БЛОК SVG-ГРАФИКОВ (фиксированная высота 232px) */}
             <ChartsSection
               chartView={chartView}
               setChartView={setChartView}
@@ -2802,29 +2822,25 @@ export default function FamilyBudgetApp() {
               daysInMonth={stats.daysInMonth}
             />
 
-            {/* СРЕДНИЙ РЯД: Структура трат + Участие в общем котле */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-              <div className="lg:col-span-3 bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm flex flex-col justify-between">
+            {/* СРЕДНИЙ РЯД (12-колоночная сетка с выравниванием карточек по высоте items-stretch) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+              {/* Левая карточка (7 колонок): Структура расходов */}
+              <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 mb-3.5 border-b border-stone-100">
                     <div>
                       <h2 className="text-sm font-semibold text-stone-900">
                         Структура расходов ({activeWalletCard === 'shared' ? 'Общий котел 👥' : activeWalletCard === 'husband' ? 'Личный: Муж 🧔🏻‍♂️' : 'Личный: Жена 👩🏼'})
                       </h2>
-                      <p className="text-xs text-stone-600">
-                        Потребительские траты: <span className="font-semibold text-stone-800">{stats.totalSelectedExpense.toLocaleString('ru-RU')} ₽</span>
-                        {expenseForecastData.totalPlannedBudget > 0 && (
-                          <span className="ml-1.5 text-stone-500">
-                            (прогноз/план месяца: {expenseForecastData.totalPlannedBudget.toLocaleString('ru-RU')} ₽)
-                          </span>
-                        )}
+                      <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
+                        Потребительские траты: <strong className="text-stone-800">{stats.totalSelectedExpense.toLocaleString('ru-RU')} ₽</strong>
                       </p>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 self-start sm:self-auto shrink-0">
                       <button
                         type="button"
                         onClick={() => setActiveTab('debts')}
-                        className="text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl transition"
+                        className="h-8 px-3 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition inline-flex items-center"
                       >
                         План/Прогноз
                       </button>
@@ -2834,7 +2850,7 @@ export default function FamilyBudgetApp() {
                           openWalletHistory(activeWalletCard);
                           setActiveTab('history');
                         }}
-                        className="text-xs font-medium text-stone-600 hover:text-stone-900 flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 transition"
+                        className="h-8 px-3 text-xs font-semibold text-stone-700 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-lg transition inline-flex items-center gap-1"
                       >
                         <span>Детали</span>
                         <ArrowUpRight className="w-3.5 h-3.5" />
@@ -2843,38 +2859,40 @@ export default function FamilyBudgetApp() {
                   </div>
 
                   {stats.topCategories.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-stone-500">
+                    <div className="py-12 text-center text-xs text-stone-500 bg-stone-50/60 rounded-xl border border-stone-100">
                       Нет потребительских расходов по этому счету за выбранный период
                     </div>
                   ) : (
-                    <div className="space-y-3 mt-2">
-                      {stats.topCategories.slice(0, 6).map(item => (
-                        <div key={item.name} className="space-y-1">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="flex items-center gap-2 font-medium text-stone-800 truncate">
-                              <span>{item.meta.icon}</span>
+                    <div className="space-y-2.5">
+                      {stats.topCategories.slice(0, 5).map(item => (
+                        <div key={item.name} className="p-2.5 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span className="flex items-center gap-2 font-semibold text-stone-800 min-w-0">
+                              <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs shrink-0 ${item.meta.color}`}>
+                                {item.meta.icon}
+                              </span>
                               <span className="truncate">{item.name}</span>
                               {item.isNewInMonth ? (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800">
-                                  Новая в мес.
+                                <span className="h-5 px-1.5 rounded-md bg-amber-50 text-amber-800 text-[10px] font-semibold inline-flex items-center shrink-0">
+                                  Новая
                                 </span>
                               ) : item.diff !== 0 ? (
-                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+                                <span className={`h-5 px-1.5 rounded-md text-[10px] font-semibold inline-flex items-center shrink-0 tabular-nums ${
                                   item.diff > 0
                                     ? 'bg-rose-50 text-rose-700'
                                     : 'bg-emerald-50 text-emerald-700'
                                 }`}>
-                                  {item.diff > 0 ? `+${item.diff.toLocaleString('ru-RU')} ₽ к ${stats.prevMonthShortName} 🔺` : `−${Math.abs(item.diff).toLocaleString('ru-RU')} ₽ к ${stats.prevMonthShortName} 🟢`}
+                                  {item.diff > 0 ? `+${item.diff.toLocaleString('ru-RU')} ₽` : `−${Math.abs(item.diff).toLocaleString('ru-RU')} ₽`}
                                 </span>
                               ) : null}
                             </span>
-                            <span className="text-stone-700 font-semibold shrink-0 ml-2">
+                            <span className="text-stone-900 font-bold shrink-0 tabular-nums">
                               {item.sum.toLocaleString('ru-RU')} ₽ <span className="text-stone-500 font-normal">({item.percent}%)</span>
                             </span>
                           </div>
-                          <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                          <div className="w-full bg-stone-200/80 h-2 rounded-full overflow-hidden">
                             <div
-                              className="bg-stone-800 h-full rounded-full transition-all duration-500"
+                              className="bg-stone-900 h-full rounded-full transition-all duration-500"
                               style={{ width: `${Math.max(4, item.percent)}%` }}
                             />
                           </div>
@@ -2883,35 +2901,48 @@ export default function FamilyBudgetApp() {
                     </div>
                   )}
                 </div>
+
+                {/* Единый нижний подвал левой карточки */}
+                <div className="pt-3 mt-4 border-t border-stone-100 flex items-center justify-between text-xs tabular-nums">
+                  <span className="text-stone-600 font-medium">Плановый ориентир месяца:</span>
+                  <span className="font-bold text-stone-900">
+                    {expenseForecastData.totalPlannedBudget.toLocaleString('ru-RU')} ₽
+                  </span>
+                </div>
               </div>
 
-              {/* Участие в общем котле */}
-              <div className="lg:col-span-2 bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm flex flex-col justify-between space-y-4">
+              {/* Правая карточка (5 колонок): Участие в общем котле и дисциплина счетов */}
+              <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-sm font-semibold text-stone-900">Участие в общем котле</h2>
-                    <User className="w-4 h-4 text-stone-500" />
+                  <div className="flex items-center justify-between pb-3.5 mb-3.5 border-b border-stone-100">
+                    <div>
+                      <h2 className="text-sm font-semibold text-stone-900">Участие в общем котле</h2>
+                      <p className="text-xs text-stone-500 mt-0.5">
+                        Баланс вклада супругов и обязательных счетов
+                      </p>
+                    </div>
+                    <span className="w-8 h-8 rounded-xl bg-stone-100 text-stone-600 flex items-center justify-center shrink-0">
+                      <User className="w-4 h-4" />
+                    </span>
                   </div>
-                  <p className="text-xs text-stone-600 mb-4">
-                    Две прозрачные шкалы вклада в семейный бюджет
-                  </p>
 
-                  <div className="space-y-4">
+                  <div className="space-y-3">
+                    {/* Блок 1: Вклад в доходы котла */}
                     {(() => {
                       const totalInc = stats.shared.monthIncome;
-                      const hIncPct = totalInc > 0 ? Math.round((stats.shared.husbandIncome / totalInc) * 100) : 0;
-                      const wIncPct = totalInc > 0 ? 100 - hIncPct : 0;
+                      const hIncPct = totalInc > 0 ? Math.round((stats.shared.husbandIncome / totalInc) * 100) : 50;
+                      const wIncPct = totalInc > 0 ? 100 - hIncPct : 50;
                       return (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs font-medium">
-                            <span className="text-stone-700 flex items-center gap-1">
+                        <div className="p-3 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-2 tabular-nums">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-stone-800 flex items-center gap-1.5">
                               <span>💰</span> Вклад в доходы котла
                             </span>
-                            <span className="text-stone-600 text-[11px]">
-                              Всего: {totalInc.toLocaleString('ru-RU')} ₽
+                            <span className="font-bold text-stone-900">
+                              {totalInc.toLocaleString('ru-RU')} ₽
                             </span>
                           </div>
-                          <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden flex">
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden flex">
                             <div
                               className="bg-emerald-600 h-full transition-all duration-500"
                               style={{ width: `${hIncPct}%` }}
@@ -2921,29 +2952,30 @@ export default function FamilyBudgetApp() {
                               style={{ width: `${wIncPct}%` }}
                             />
                           </div>
-                          <div className="flex items-center justify-between text-[11px] text-stone-600">
-                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandIncome.toLocaleString('ru-RU')} ₽{totalInc > 0 ? ` (${hIncPct}%)` : ''}</span>
-                            <span>👩🏼 Жена: {stats.shared.wifeIncome.toLocaleString('ru-RU')} ₽{totalInc > 0 ? ` (${wIncPct}%)` : ''}</span>
+                          <div className="flex items-center justify-between text-xs text-stone-600">
+                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandIncome.toLocaleString('ru-RU')} ₽ ({totalInc > 0 ? hIncPct : 0}%)</span>
+                            <span>👩🏼 Жена: {stats.shared.wifeIncome.toLocaleString('ru-RU')} ₽ ({totalInc > 0 ? wIncPct : 0}%)</span>
                           </div>
                         </div>
                       );
                     })()}
 
+                    {/* Блок 2: Оплата общих покупок */}
                     {(() => {
                       const totalExp = stats.shared.consumerExpense;
-                      const hExpPct = totalExp > 0 ? Math.round((stats.shared.husbandConsumerSpent / totalExp) * 100) : 0;
-                      const wExpPct = totalExp > 0 ? 100 - hExpPct : 0;
+                      const hExpPct = totalExp > 0 ? Math.round((stats.shared.husbandConsumerSpent / totalExp) * 100) : 50;
+                      const wExpPct = totalExp > 0 ? 100 - hExpPct : 50;
                       return (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs font-medium">
-                            <span className="text-stone-700 flex items-center gap-1">
+                        <div className="p-3 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-2 tabular-nums">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-stone-800 flex items-center gap-1.5">
                               <span>🛒</span> Оплата общих покупок
                             </span>
-                            <span className="text-stone-600 text-[11px]">
-                              Всего: {totalExp.toLocaleString('ru-RU')} ₽
+                            <span className="font-bold text-stone-900">
+                              {totalExp.toLocaleString('ru-RU')} ₽
                             </span>
                           </div>
-                          <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden flex">
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden flex">
                             <div
                               className="bg-stone-900 h-full transition-all duration-500"
                               style={{ width: `${hExpPct}%` }}
@@ -2953,9 +2985,42 @@ export default function FamilyBudgetApp() {
                               style={{ width: `${wExpPct}%` }}
                             />
                           </div>
-                          <div className="flex items-center justify-between text-[11px] text-stone-600">
-                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandConsumerSpent.toLocaleString('ru-RU')} ₽{totalExp > 0 ? ` (${hExpPct}%)` : ''}</span>
-                            <span>👩🏼 Жена: {stats.shared.wifeConsumerSpent.toLocaleString('ru-RU')} ₽{totalExp > 0 ? ` (${wExpPct}%)` : ''}</span>
+                          <div className="flex items-center justify-between text-xs text-stone-600">
+                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandConsumerSpent.toLocaleString('ru-RU')} ₽ ({totalExp > 0 ? hExpPct : 0}%)</span>
+                            <span>👩🏼 Жена: {stats.shared.wifeConsumerSpent.toLocaleString('ru-RU')} ₽ ({totalExp > 0 ? wExpPct : 0}%)</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Блок 3: Исполнение обязательных счетов месяца (уравновешивает высоту правой карточки) */}
+                    {(() => {
+                      const targetYm = selectedMonth === 'all' ? getCurrentMonthPrefix() : selectedMonth;
+                      const mandatoryList = recurringPayments.filter(r => r.isMandatory !== false);
+                      const totalBills = mandatoryList.length;
+                      const paidBills = mandatoryList.filter(r => (r.paidMonths || []).includes(targetYm)).length;
+                      const billsPct = totalBills > 0 ? Math.round((paidBills / totalBills) * 100) : 100;
+                      return (
+                        <div className="p-3 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-2 tabular-nums">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-stone-800 flex items-center gap-1.5">
+                              <span>🛡️</span> Обязательные счета месяца
+                            </span>
+                            <span className="font-bold text-stone-900">
+                              {paidBills} из {totalBills} оплачено
+                            </span>
+                          </div>
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                billsPct === 100 ? 'bg-emerald-600' : 'bg-amber-500'
+                              }`}
+                              style={{ width: `${billsPct}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-stone-600">
+                            <span>Осталось к оплате: {stats.unpaidMandatoryThisMonth.toLocaleString('ru-RU')} ₽</span>
+                            <span>{billsPct}% выполнено</span>
                           </div>
                         </div>
                       );
@@ -2963,7 +3028,8 @@ export default function FamilyBudgetApp() {
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-xs">
+                {/* Единый нижний подвал правой карточки */}
+                <div className="pt-3 mt-4 border-t border-stone-100 flex items-center justify-between text-xs tabular-nums">
                   <span className="text-stone-600 flex items-center gap-1.5 font-medium">
                     <span className="w-2 h-2 rounded-full bg-violet-600"></span>
                     <span>Отложено и погашено из котла:</span>
@@ -2976,25 +3042,25 @@ export default function FamilyBudgetApp() {
             </div>
 
             {/* ПОСЛЕДНИЕ ОПЕРАЦИИ */}
-            <div className="bg-white rounded-3xl border border-stone-200/80 shadow-sm p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 mb-2 border-b border-stone-100">
                 <div>
-                  <h2 className="text-base font-semibold tracking-tight text-stone-900">Последние операции</h2>
-                  <p className="text-xs text-stone-600">Нажмите на запись для редактирования или внесите пачку чеков за прошлую дату</p>
+                  <h2 className="text-sm font-semibold text-stone-900">Последние операции</h2>
+                  <p className="text-xs text-stone-500 mt-0.5">Нажмите на запись для редактирования или внесите пачку чеков за прошлую дату</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                   <button
                     type="button"
                     onClick={() => openNewTransactionModal(null, null, null, true)}
-                    className="text-xs font-semibold text-stone-800 hover:text-stone-950 px-3 py-1.5 rounded-xl bg-amber-100/80 hover:bg-amber-200/80 transition flex items-center gap-1"
+                    className="h-9 px-3 rounded-xl bg-amber-100/90 hover:bg-amber-200/80 text-stone-900 text-xs font-semibold transition inline-flex items-center gap-1.5"
                   >
-                    <Calendar className="w-3.5 h-3.5" />
+                    <Calendar className="w-3.5 h-3.5 shrink-0" />
                     <span>Внести чеки за дату</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveTab('history')}
-                    className="text-xs font-medium text-stone-600 hover:text-stone-900 px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 transition"
+                    className="h-9 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-900 text-xs font-semibold transition inline-flex items-center tabular-nums"
                   >
                     Все ({periodTransactions.length})
                   </button>
@@ -3002,7 +3068,7 @@ export default function FamilyBudgetApp() {
               </div>
 
               {periodTransactions.length === 0 ? (
-                <div className="py-8 text-center text-xs text-stone-500">
+                <div className="py-10 text-center text-xs text-stone-500">
                   В этом месяце операций пока нет
                 </div>
               ) : (
@@ -3017,17 +3083,18 @@ export default function FamilyBudgetApp() {
         {/* ================= ВКЛАДКА 2: ОПЕРАЦИИ И КАЛЕНДАРЬ ЧЕКОВ ================= */}
         {activeTab === 'history' && (
           <div className="space-y-4 animate-fade-in">
-            <div className="bg-white rounded-3xl border border-stone-200/80 shadow-sm p-4 space-y-3">
+            <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-4 space-y-3">
+              {/* Панель поиска и кнопок строго единой высоты h-10 */}
               <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative flex-1 min-w-[180px]">
-                  <Search className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     placeholder="Поиск по названию или категории..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     aria-label="Поиск по операциям"
-                    className="w-full text-xs font-medium pl-9 pr-8 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                    className="w-full h-10 text-xs font-medium pl-9 pr-8 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
                   />
                   {searchQuery && (
                     <button
@@ -3044,13 +3111,13 @@ export default function FamilyBudgetApp() {
                 <button
                   type="button"
                   onClick={() => setIsCalendarExpanded(!isCalendarExpanded)}
-                  className={`px-3 py-2.5 rounded-2xl border text-xs font-semibold flex items-center gap-1.5 transition ${
+                  className={`h-10 px-3.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition shrink-0 tabular-nums ${
                     isCalendarExpanded || selectedCalendarDate
                       ? 'bg-amber-100 text-amber-950 border-amber-300'
                       : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
                   }`}
                 >
-                  <Calendar className="w-3.5 h-3.5" />
+                  <Calendar className="w-3.5 h-3.5 shrink-0" />
                   <span>{selectedCalendarDate ? `День: ${selectedCalendarDate.slice(8, 10)}.${selectedCalendarDate.slice(5, 7)}` : 'Календарь чеков'}</span>
                 </button>
 
@@ -3059,16 +3126,16 @@ export default function FamilyBudgetApp() {
                   onClick={() => setIsFilterOpen(!isFilterOpen)}
                   aria-expanded={isFilterOpen}
                   aria-label="Открыть фильтры операций"
-                  className={`px-3 py-2.5 rounded-2xl border text-xs font-medium flex items-center gap-1.5 transition ${
+                  className={`h-10 px-3.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition shrink-0 ${
                     hasActiveFilters
                       ? 'bg-stone-900 text-white border-stone-900'
                       : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
                   }`}
                 >
-                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden sm:inline">Фильтры</span>
                   {activeFilterCount > 0 && (
-                    <span className="w-4 h-4 rounded-full bg-amber-400 text-stone-950 font-bold text-[10px] flex items-center justify-center">
+                    <span className="w-5 h-5 rounded-md bg-amber-400 text-stone-950 font-bold text-[10px] inline-flex items-center justify-center tabular-nums">
                       {activeFilterCount}
                     </span>
                   )}
@@ -3085,12 +3152,12 @@ export default function FamilyBudgetApp() {
                 />
               )}
 
-              {/* Выпадающая панель фильтров */}
+              {/* Выпадающая панель фильтров (3 колонки на десктопе) */}
               {isFilterOpen && (
-                <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200/80 space-y-3 animate-fade-in text-xs">
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 grid grid-cols-1 sm:grid-cols-3 gap-3 animate-fade-in text-xs">
                   <div>
-                    <label className="text-[11px] font-medium text-stone-600 block mb-1">Кто записал:</label>
-                    <div className="flex items-center gap-1 flex-wrap">
+                    <label className="text-xs font-semibold text-stone-600 block mb-1.5">Кто записал:</label>
+                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
                       {[
                         { id: 'all', label: 'Все' },
                         { id: 'husband', label: '🧔🏻‍♂️ Муж' },
@@ -3100,7 +3167,7 @@ export default function FamilyBudgetApp() {
                           key={opt.id}
                           type="button"
                           onClick={() => setFilterAuthor(opt.id)}
-                          className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                          className={`h-7 px-2 rounded-md font-medium transition flex items-center justify-center truncate ${
                             filterAuthor === opt.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'
                           }`}
                         >
@@ -3111,18 +3178,18 @@ export default function FamilyBudgetApp() {
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-medium text-stone-600 block mb-1">Тип операции:</label>
-                    <div className="flex items-center gap-1 flex-wrap">
+                    <label className="text-xs font-semibold text-stone-600 block mb-1.5">Тип операции:</label>
+                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
                       {[
                         { id: 'all', label: 'Все' },
-                        { id: 'expense', label: 'Расходы (−)' },
-                        { id: 'income', label: 'Доходы (+)' },
+                        { id: 'expense', label: 'Расходы' },
+                        { id: 'income', label: 'Доходы' },
                       ].map(opt => (
                         <button
                           key={opt.id}
                           type="button"
                           onClick={() => setFilterType(opt.id)}
-                          className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                          className={`h-7 px-2 rounded-md font-medium transition flex items-center justify-center truncate ${
                             filterType === opt.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'
                           }`}
                         >
@@ -3133,10 +3200,10 @@ export default function FamilyBudgetApp() {
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-medium text-stone-600 block mb-1">Счет:</label>
-                    <div className="flex items-center gap-1 flex-wrap">
+                    <label className="text-xs font-semibold text-stone-600 block mb-1.5">Счет:</label>
+                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
                       {[
-                        { id: 'all', label: 'Все счета' },
+                        { id: 'all', label: 'Все' },
                         { id: 'shared', label: '👥 Общий' },
                         { id: 'personal', label: '👤 Личный' },
                       ].map(opt => (
@@ -3144,7 +3211,7 @@ export default function FamilyBudgetApp() {
                           key={opt.id}
                           type="button"
                           onClick={() => setFilterAccount(opt.id)}
-                          className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                          className={`h-7 px-2 rounded-md font-medium transition flex items-center justify-center truncate ${
                             filterAccount === opt.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'
                           }`}
                         >
@@ -3156,9 +3223,9 @@ export default function FamilyBudgetApp() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between text-[11px] text-stone-600 font-medium flex-wrap gap-2">
-                <span>
-                  Найдено: <strong className="text-stone-800">{filteredTransactions.length}</strong> из {periodTransactions.length}
+              <div className="flex items-center justify-between text-xs text-stone-600 font-medium flex-wrap gap-2 pt-1">
+                <span className="tabular-nums">
+                  Найдено: <strong className="text-stone-900">{filteredTransactions.length}</strong> из {periodTransactions.length}
                   {selectedCalendarDate && (
                     <span className="ml-2 text-amber-800 font-semibold">
                       • Фильтр по дате: {selectedCalendarDate}
@@ -3187,12 +3254,12 @@ export default function FamilyBudgetApp() {
             </div>
 
             {groupedTransactions.length === 0 ? (
-              <div className="py-12 text-center bg-white rounded-3xl border border-stone-200/80 p-8 shadow-sm">
+              <div className="py-12 text-center bg-white rounded-2xl border border-stone-200/80 p-8 shadow-sm">
                 <div className="text-3xl mb-2">🧾</div>
-                <div className="text-sm font-semibold text-stone-700">
+                <div className="text-sm font-semibold text-stone-800">
                   {selectedCalendarDate ? `За ${selectedCalendarDate} операций пока нет` : 'Операций не найдено'}
                 </div>
-                <p className="text-xs text-stone-600 mt-1">
+                <p className="text-xs text-stone-500 mt-1">
                   {selectedCalendarDate
                     ? 'Вы можете сразу добавить один или несколько чеков за этот день'
                     : 'Попробуйте изменить запрос или сбросить фильтры'}
@@ -3202,7 +3269,7 @@ export default function FamilyBudgetApp() {
                     <button
                       type="button"
                       onClick={() => openNewTransactionModal(null, null, selectedCalendarDate, true)}
-                      className="px-4 py-2 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition"
+                      className="h-9 px-4 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center"
                     >
                       + Добавить чеки за {selectedCalendarDate}
                     </button>
@@ -3211,7 +3278,7 @@ export default function FamilyBudgetApp() {
                     <button
                       type="button"
                       onClick={clearFilters}
-                      className="px-4 py-2 rounded-xl bg-stone-100 text-stone-800 text-xs font-semibold hover:bg-stone-200 transition"
+                      className="h-9 px-4 rounded-xl bg-stone-100 text-stone-800 text-xs font-semibold hover:bg-stone-200 transition inline-flex items-center"
                     >
                       Сбросить фильтры
                     </button>
@@ -3219,21 +3286,21 @@ export default function FamilyBudgetApp() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {groupedTransactions.map(group => (
-                  <div key={group.date} className="bg-white rounded-3xl border border-stone-200/80 p-3 sm:p-4 shadow-sm">
-                    <div className="flex items-center justify-between px-2.5 py-1.5 bg-stone-50 rounded-xl text-xs font-semibold text-stone-700 mb-2 gap-2">
+                  <div key={group.date} className="bg-white rounded-2xl border border-stone-200/80 p-3 sm:p-4 shadow-sm">
+                    <div className="h-9 flex items-center justify-between px-3 bg-stone-50 rounded-xl text-xs font-semibold text-stone-700 mb-2 gap-2">
                       <span className="truncate">{group.label}</span>
-                      <div className="flex items-center gap-2.5 shrink-0">
+                      <div className="flex items-center gap-3 shrink-0 tabular-nums">
                         <button
                           type="button"
                           onClick={() => openNewTransactionModal(null, null, group.date, false)}
-                          className="text-[11px] font-semibold text-stone-700 hover:text-stone-950 bg-white px-2 py-0.5 rounded-lg border border-stone-200/80 hover:border-stone-400 transition"
+                          className="h-6 px-2.5 text-[11px] font-semibold text-stone-700 hover:text-stone-950 bg-white rounded-lg border border-stone-200/80 hover:border-stone-400 transition inline-flex items-center"
                           title={`Добавить ещё чек за ${group.date}`}
                         >
                           + Чек сюда
                         </button>
-                        <span className={group.net >= 0 ? 'text-emerald-700' : 'text-stone-700'}>
+                        <span className={`min-w-[84px] text-right font-bold ${group.net >= 0 ? 'text-emerald-700' : 'text-stone-800'}`}>
                           {group.net >= 0 ? '+' : '−'}{Math.abs(group.net).toLocaleString('ru-RU')} ₽
                         </span>
                       </div>
@@ -3250,13 +3317,13 @@ export default function FamilyBudgetApp() {
 
         {/* ================= ВКЛАДКА 3: СЕМЕЙНЫЕ КОПИЛКИ ================= */}
         {activeTab === 'goals' && (
-          <div className="space-y-5 animate-fade-in">
-            <div className="bg-white rounded-3xl border border-stone-200/80 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-4 animate-fade-in">
+            <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold tracking-tight text-stone-900 flex items-center gap-2">
+                <h2 className="text-base font-semibold tracking-tight text-stone-900 flex items-center gap-2">
                   <span>🎯</span> Семейные копилки и цели
                 </h2>
-                <p className="text-xs text-stone-600 mt-0.5">
+                <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
                   Общий прогресс: <strong className="text-stone-800">{stats.totalSavings.toLocaleString('ru-RU')} ₽</strong> из {stats.totalTargetSavings.toLocaleString('ru-RU')} ₽ • Нажмите на карточку для пополнения или вывода
                 </p>
               </div>
@@ -3269,7 +3336,7 @@ export default function FamilyBudgetApp() {
                   setNewGoalCurrent('0');
                   setIsNewGoalModalOpen(true);
                 }}
-                className="text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-white px-4 py-2.5 rounded-2xl transition flex items-center gap-1.5 shadow-sm self-start sm:self-auto"
+                className="h-10 px-4 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 shadow-sm self-start sm:self-auto shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 <span>Новая цель</span>
@@ -3277,23 +3344,23 @@ export default function FamilyBudgetApp() {
             </div>
 
             {goals.length === 0 ? (
-              <div className="bg-white rounded-3xl border border-stone-200/80 p-10 text-center shadow-sm">
+              <div className="bg-white rounded-2xl border border-stone-200/80 p-10 text-center shadow-sm">
                 <div className="text-3xl mb-2">🎯</div>
                 <div className="text-sm font-semibold text-stone-800">Нет активных целей-копилок</div>
-                <p className="text-xs text-stone-600 mt-1 max-w-sm mx-auto">
+                <p className="text-xs text-stone-500 mt-1 max-w-sm mx-auto">
                   Создайте цель накопления на отпуск, подушку безопасности или крупную покупку
                 </p>
                 <button
                   type="button"
                   onClick={() => setIsNewGoalModalOpen(true)}
-                  className="mt-4 px-4 py-2 bg-stone-900 text-white rounded-xl text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center gap-1.5 shadow-sm"
+                  className="mt-4 h-9 px-4 bg-stone-900 text-white rounded-xl text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center gap-1.5 shadow-sm"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Создать первую цель</span>
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
                 {goals.map(goal => {
                   const percent = goal.target > 0 ? Math.min(100, Math.max(0, Math.round((goal.current / goal.target) * 100))) : 0;
                   const remaining = Math.max(0, (Number(goal.target) || 0) - (Number(goal.current) || 0));
@@ -3317,20 +3384,22 @@ export default function FamilyBudgetApp() {
                           setIsGoalModalOpen(true);
                         }
                       }}
-                      className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm hover:shadow-md hover:border-stone-300 transition-all cursor-pointer relative overflow-hidden group text-left flex flex-col justify-between"
+                      className="min-h-[196px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm hover:shadow-md hover:border-stone-300 transition-all cursor-pointer relative overflow-hidden group text-left flex flex-col justify-between"
                     >
                       <div>
                         <div className="flex items-center justify-between mb-3">
-                          <span className="text-2xl group-hover:scale-110 transition-transform">{goal.icon}</span>
+                          <span className="w-10 h-10 rounded-xl bg-stone-50 border border-stone-200/70 flex items-center justify-center text-xl shrink-0">
+                            {goal.icon}
+                          </span>
                           <div className="flex items-center gap-1">
-                            <span className="text-xs font-bold text-stone-700 bg-stone-100 px-2.5 py-1 rounded-xl">
+                            <span className="h-7 px-2.5 rounded-lg bg-stone-100 text-stone-800 text-xs font-bold inline-flex items-center tabular-nums">
                               {percent}%
                             </span>
                             <button
                               type="button"
                               onClick={(e) => openEditGoalModal(e, goal)}
                               aria-label={`Редактировать цель ${goal.title}`}
-                              className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                              className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition"
                               title="Изменить цель"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
@@ -3339,7 +3408,7 @@ export default function FamilyBudgetApp() {
                               type="button"
                               onClick={(e) => handleDeleteGoal(e, goal.id)}
                               aria-label={`Удалить цель ${goal.title}`}
-                              className="p-1.5 text-stone-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                              className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                               title="Удалить цель"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -3347,26 +3416,26 @@ export default function FamilyBudgetApp() {
                           </div>
                         </div>
 
-                        <div className="font-semibold text-stone-900 mb-1 flex items-center justify-between gap-2">
+                        <div className="font-semibold text-stone-900 text-sm mb-1 flex items-center justify-between gap-2">
                           <span className="truncate">{goal.title}</span>
-                          <span className="text-xs font-semibold text-violet-600 shrink-0">
+                          <span className="text-xs font-semibold text-violet-700 shrink-0">
                             ± Операция
                           </span>
                         </div>
 
-                        <div className="text-xs text-stone-600 mb-3 font-medium">
+                        <div className="text-xs text-stone-600 font-medium tabular-nums">
                           {Number(goal.current).toLocaleString('ru-RU')} ₽ из {Number(goal.target).toLocaleString('ru-RU')} ₽
                         </div>
                       </div>
 
-                      <div>
-                        <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden mb-2">
+                      <div className="pt-3 mt-3 border-t border-stone-100">
+                        <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden mb-2">
                           <div
                             className={`h-full rounded-full bg-gradient-to-r ${goal.color} transition-all duration-500`}
                             style={{ width: `${percent}%` }}
                           />
                         </div>
-                        <div className="text-[11px] text-stone-600 flex items-center justify-between">
+                        <div className="text-xs text-stone-500 flex items-center justify-between tabular-nums">
                           <span>{remaining > 0 ? `Осталось: ${remaining.toLocaleString('ru-RU')} ₽` : 'Цель достигнута! 🎉'}</span>
                         </div>
                       </div>
@@ -3380,65 +3449,66 @@ export default function FamilyBudgetApp() {
 
         {/* ================= ВКЛАДКА 4: ПЛАТЕЖИ, НАПОМИНАЛКА И ПЛАНИРОВЩИК ================= */}
         {activeTab === 'debts' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-medium text-stone-600 block mb-0.5">Неоплаченные обязательные счета</span>
-                  <div className="text-xl sm:text-2xl font-bold text-stone-900">
+          <div className="space-y-5 animate-fade-in">
+            {/* 3 карточки сводки фиксированной высоты h-[120px] */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch">
+              <div className="h-[120px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-xs font-medium text-stone-500 block truncate">Неоплаченные обязательные счета</span>
+                  <div className="text-xl sm:text-2xl font-bold text-stone-900 tabular-nums mt-1 truncate">
                     {stats.unpaidMandatoryThisMonth.toLocaleString('ru-RU')} ₽
                   </div>
-                  <div className="text-[11px] text-stone-600 mt-1">
+                  <div className="text-xs text-stone-600 mt-1 truncate">
                     {pendingBillsCount > 0
                       ? `Ожидают оплаты: ${pendingBillsCount} шт.`
                       : '✓ Все обязательные счета оплачены'}
                   </div>
                 </div>
-                <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center text-xl shrink-0">
+                <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center text-xl shrink-0">
                   🛡️
                 </div>
               </div>
 
-              <div className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-medium text-stone-600 block mb-0.5">Планируемые расходы месяца</span>
-                  <div className="text-xl sm:text-2xl font-bold text-emerald-800">
+              <div className="h-[120px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-xs font-medium text-stone-500 block truncate">Планируемые расходы месяца</span>
+                  <div className="text-xl sm:text-2xl font-bold text-emerald-800 tabular-nums mt-1 truncate">
                     {expenseForecastData.totalPlannedBudget.toLocaleString('ru-RU')} ₽
                   </div>
-                  <div className="text-[11px] text-stone-600 mt-1">
-                    Факт сейчас: {expenseForecastData.totalCurrentActual.toLocaleString('ru-RU')} ₽ (из анализа {expenseForecastData.pastMonthsCount} прошл. мес.)
+                  <div className="text-xs text-stone-600 mt-1 truncate tabular-nums">
+                    Факт: {expenseForecastData.totalCurrentActual.toLocaleString('ru-RU')} ₽ ({expenseForecastData.pastMonthsCount} мес. базы)
                   </div>
                 </div>
-                <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-xl shrink-0">
+                <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-xl shrink-0">
                   📊
                 </div>
               </div>
 
-              <div className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-medium text-stone-600 block mb-0.5">Остаток по долгам и кредитам</span>
-                  <div className="text-xl sm:text-2xl font-bold text-rose-600">
+              <div className="h-[120px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-xs font-medium text-stone-500 block truncate">Остаток по долгам и кредитам</span>
+                  <div className="text-xl sm:text-2xl font-bold text-rose-600 tabular-nums mt-1 truncate">
                     {stats.totalDebtRemaining.toLocaleString('ru-RU')} ₽
                   </div>
-                  <div className="text-[11px] text-stone-600 mt-1">
+                  <div className="text-xs text-stone-600 mt-1 truncate tabular-nums">
                     Погашено {Math.max(0, stats.totalDebtInitial - stats.totalDebtRemaining).toLocaleString('ru-RU')} ₽ из {stats.totalDebtInitial.toLocaleString('ru-RU')} ₽
                   </div>
                 </div>
-                <div className="w-11 h-11 rounded-2xl bg-rose-50 text-rose-700 flex items-center justify-center text-xl shrink-0">
+                <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center text-xl shrink-0">
                   💳
                 </div>
               </div>
             </div>
 
-            {/* РАЗДЕЛ 1: СПИСОК ПОСТОЯННЫХ ОБЯЗАТЕЛЬНЫХ РАСХОДОВ */}
-            <div className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200/80 shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* РАЗДЕЛ 1: СПИСОК ПОСТОЯННЫХ ОБЯЗАТЕЛЬНЫХ РАСХОДОВ (выровненные колонки сумм и кнопок) */}
+            <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-100">
                 <div>
-                  <h2 className="text-base font-semibold tracking-tight text-stone-900 flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-amber-600" />
+                  <h2 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-amber-600 shrink-0" />
                     <span>Постоянные обязательные расходы и напоминалка</span>
                   </h2>
-                  <p className="text-xs text-stone-600">
+                  <p className="text-xs text-stone-500 mt-0.5">
                     Мобильная связь, интернет, ЖКУ, аренда, секции — контролируйте сроки оплаты и резерв бюджета на месяц
                   </p>
                 </div>
@@ -3454,7 +3524,7 @@ export default function FamilyBudgetApp() {
                     setNewRecMandatory(true);
                     setIsNewRecurringModalOpen(true);
                   }}
-                  className="text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-white px-3.5 py-2 rounded-2xl transition flex items-center gap-1.5 self-start sm:self-auto shadow-sm"
+                  className="h-9 px-3.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 self-start sm:self-auto shadow-sm shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Добавить постоянный расход</span>
@@ -3462,7 +3532,7 @@ export default function FamilyBudgetApp() {
               </div>
 
               {recurringPayments.length === 0 ? (
-                <div className="py-8 text-center text-xs text-stone-600">
+                <div className="py-8 text-center text-xs text-stone-500">
                   Список постоянных расходов пуст. Добавьте связь, интернет или ЖКУ для автоматических напоминаний.
                 </div>
               ) : (
@@ -3475,28 +3545,28 @@ export default function FamilyBudgetApp() {
                       const isPaid = st.code === 'paid';
                       const catMeta = getCategoryMeta(rec.category, 'expense', customCategories);
                       return (
-                        <div key={rec.id} className="py-3.5 flex items-center justify-between gap-3 group flex-wrap sm:flex-nowrap">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-base shrink-0 ${
+                        <div key={rec.id} className="py-3 px-2 hover:bg-stone-50/80 rounded-xl flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap transition">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-base shrink-0 ${
                               isPaid ? 'bg-emerald-50 text-emerald-700' : st.code === 'overdue' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
                             }`}>
                               {isPaid ? <CheckCircle2 className="w-5 h-5" /> : <span>{catMeta.icon}</span>}
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold text-stone-900 truncate flex items-center gap-2 flex-wrap">
-                                <span>{rec.title}</span>
-                                <span className={`text-[10px] px-2 py-0.5 rounded-lg border ${st.badgeClass}`}>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-semibold text-stone-900 flex items-center gap-2 flex-wrap">
+                                <span className="truncate">{rec.title}</span>
+                                <span className={`h-5 px-2 rounded-md text-[10px] border inline-flex items-center shrink-0 ${st.badgeClass}`}>
                                   {st.label}
                                 </span>
                                 {rec.isMandatory === false && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-600">
+                                  <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-600 text-[10px] inline-flex items-center shrink-0">
                                     Необязательный
                                   </span>
                                 )}
                               </div>
-                              <div className="text-xs text-stone-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                <span>{rec.category}</span>
-                                <span>•</span>
+                              <div className="text-xs text-stone-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                <span className="font-medium text-stone-600">{rec.category}</span>
+                                <span className="text-stone-300">•</span>
                                 <span>
                                   {(rec.account || 'shared') === 'shared'
                                     ? '👥 Общий котел'
@@ -3504,31 +3574,32 @@ export default function FamilyBudgetApp() {
                                     ? '👩🏼 Карта жены'
                                     : '🧔🏻‍♂️ Карта мужа'}
                                 </span>
-                                <span>•</span>
-                                <span>Срок: до {rec.dueDate}-го числа</span>
+                                <span className="text-stone-300">•</span>
+                                <span className="tabular-nums">До {rec.dueDate}-го числа</span>
                               </div>
                             </div>
                           </div>
 
+                          {/* Жестко выровненные колонки: сумма (w-24) + статус/действие (w-[104px] h-8) + кнопки (w-8 h-8) */}
                           <div className="flex items-center gap-2 shrink-0 ml-auto">
-                            <div className="text-right mr-1">
-                              <div className="text-sm font-bold text-stone-900">
+                            <div className="w-24 text-right tabular-nums">
+                              <div className="text-sm font-bold text-stone-900 leading-tight">
                                 {Number(rec.amount).toLocaleString('ru-RU')} ₽
                               </div>
                               <div className="text-[10px] text-stone-500">
-                                план в месяц
+                                план в мес.
                               </div>
                             </div>
 
                             {isPaid ? (
-                              <span className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
+                              <span className="w-[104px] h-8 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200 inline-flex items-center justify-center shrink-0">
                                 ✓ Оплачено
                               </span>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => openPayRecurringModal(rec)}
-                                className="px-3.5 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold transition shadow-sm"
+                                className="w-[104px] h-8 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold transition shadow-sm inline-flex items-center justify-center shrink-0"
                               >
                                 Оплатить
                               </button>
@@ -3538,7 +3609,7 @@ export default function FamilyBudgetApp() {
                               type="button"
                               onClick={(e) => openEditRecurringModal(e, rec)}
                               aria-label={`Изменить платеж ${rec.title}`}
-                              className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                              className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition shrink-0"
                               title="Редактировать"
                             >
                               <Edit3 className="w-4 h-4" />
@@ -3548,7 +3619,7 @@ export default function FamilyBudgetApp() {
                               type="button"
                               onClick={(e) => handleDeleteRecurring(e, rec.id)}
                               aria-label={`Удалить платеж ${rec.title}`}
-                              className="p-1.5 text-stone-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                              className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition shrink-0"
                               title="Удалить"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -3561,56 +3632,56 @@ export default function FamilyBudgetApp() {
               )}
             </div>
 
-            {/* РАЗДЕЛ 2: ПЛАНИРУЕМЫЕ И ПРЕДПОЛОЖИТЕЛЬНЫЕ РАСХОДЫ НА ОСНОВЕ ПРОШЛЫХ МЕСЯЦЕВ */}
-            <div className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200/80 shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* РАЗДЕЛ 2: ПЛАНИРУЕМЫЕ И ПРЕДПОЛОЖИТЕЛЬНЫЕ РАСХОДЫ */}
+            <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-100">
                 <div>
-                  <h2 className="text-base font-semibold tracking-tight text-stone-900 flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-700" />
+                  <h2 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-emerald-700 shrink-0" />
                     <span>Планируемые и предположительные расходы (по анализу прошлых месяцев)</span>
                   </h2>
-                  <p className="text-xs text-stone-600">
-                    Автоматический расчет ожидаемых трат по категориям на базе прошлых месяцев ({expenseForecastData.pastMonthsCount} мес. в базе) + постоянных счетов. Нажмите на карандаш, чтобы задать свой лимит.
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Автоматический расчет ожидаемых трат по категориям на базе прошлых месяцев ({expenseForecastData.pastMonthsCount} мес. в базе) + постоянных счетов.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={handleApplyAutoForecastLimits}
-                  className="text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 px-3.5 py-2 rounded-2xl transition flex items-center gap-1.5 self-start sm:self-auto"
+                  className="h-9 px-3.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
                   <span>Заполнить план из прошлых месяцев</span>
                 </button>
               </div>
 
               {expenseForecastData.rows.length === 0 ? (
-                <div className="py-8 text-center text-xs text-stone-600">
+                <div className="py-8 text-center text-xs text-stone-500">
                   Пока недостаточно данных для прогноза по этому кошельку
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {expenseForecastData.rows.map(row => {
                     const isEditingThis = editingPlanCategory === row.category;
                     return (
-                      <div key={row.category} className="p-3.5 rounded-2xl bg-stone-50/80 border border-stone-200/70 space-y-2">
+                      <div key={row.category} className="p-3.5 rounded-xl bg-stone-50/70 border border-stone-200/70 space-y-2">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm shrink-0 ${row.meta.color}`}>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm shrink-0 ${row.meta.color}`}>
                               {row.meta.icon}
                             </span>
                             <div className="min-w-0">
-                              <div className="text-xs font-bold text-stone-900 flex items-center gap-2 flex-wrap">
+                              <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5 flex-wrap">
                                 <span>{row.category}</span>
-                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-white border border-stone-200 text-stone-600">
-                                  Среднее за прошл. мес: {row.avgHistorical.toLocaleString('ru-RU')} ₽
+                                <span className="h-5 px-2 rounded-md bg-white border border-stone-200 text-[10px] font-medium text-stone-600 inline-flex items-center tabular-nums">
+                                  Среднее: {row.avgHistorical.toLocaleString('ru-RU')} ₽
                                 </span>
                                 {row.recSum > 0 && (
-                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-50 text-blue-700">
+                                  <span className="h-5 px-2 rounded-md bg-blue-50 text-blue-700 text-[10px] font-medium inline-flex items-center tabular-nums">
                                     Постоянные счета: {row.recSum.toLocaleString('ru-RU')} ₽
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[11px] text-stone-600 mt-0.5">
+                              <div className="text-xs text-stone-500 mt-0.5 tabular-nums">
                                 {row.isOverPlan
                                   ? `⚠️ Превышение планового бюджета на ${(row.currentActual - row.effectivePlan).toLocaleString('ru-RU')} ₽`
                                   : `Свободно по плану категории: ${row.remainingPlan.toLocaleString('ru-RU')} ₽`}
@@ -3620,7 +3691,7 @@ export default function FamilyBudgetApp() {
 
                           <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                             {isEditingThis ? (
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1.5">
                                 <input
                                   type="number"
                                   min="0"
@@ -3628,12 +3699,12 @@ export default function FamilyBudgetApp() {
                                   value={editingPlanValue}
                                   onChange={(e) => setEditingPlanValue(e.target.value)}
                                   placeholder={String(row.autoSuggested)}
-                                  className="w-24 text-xs font-bold px-2.5 py-1.5 bg-white border border-stone-300 rounded-xl focus:outline-none"
+                                  className="w-28 h-8 text-xs font-bold px-2.5 bg-white border border-stone-300 rounded-lg focus:outline-none tabular-nums"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => handleSaveCategoryLimit(row.category)}
-                                  className="p-1.5 bg-stone-900 text-white rounded-xl hover:bg-stone-800"
+                                  className="w-8 h-8 bg-stone-900 text-white rounded-lg hover:bg-stone-800 flex items-center justify-center"
                                   title="Сохранить план"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -3641,21 +3712,21 @@ export default function FamilyBudgetApp() {
                                 <button
                                   type="button"
                                   onClick={() => setEditingPlanCategory(null)}
-                                  className="p-1.5 bg-stone-200 text-stone-700 rounded-xl hover:bg-stone-300"
+                                  className="w-8 h-8 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 flex items-center justify-center"
                                   title="Отмена"
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             ) : (
-                              <div className="text-right flex items-center gap-2">
+                              <div className="text-right flex items-center gap-2.5 tabular-nums">
                                 <div>
                                   <div className="text-xs font-bold text-stone-900">
                                     Факт: {row.currentActual.toLocaleString('ru-RU')} ₽{' '}
-                                    <span className="text-stone-600 font-normal">/ План: {row.effectivePlan.toLocaleString('ru-RU')} ₽</span>
+                                    <span className="text-stone-500 font-normal">/ План: {row.effectivePlan.toLocaleString('ru-RU')} ₽</span>
                                   </div>
-                                  <div className="text-[10px] text-stone-600">
-                                    {row.userCustomLimit !== undefined ? 'Ручной план' : 'Авто-прогноз из прошлых мес.'} ({row.pctUsed}%)
+                                  <div className="text-[10px] text-stone-500">
+                                    {row.userCustomLimit !== undefined ? 'Ручной план' : 'Авто-прогноз'} ({row.pctUsed}%)
                                   </div>
                                 </div>
                                 <button
@@ -3664,7 +3735,7 @@ export default function FamilyBudgetApp() {
                                     setEditingPlanCategory(row.category);
                                     setEditingPlanValue(String(row.effectivePlan));
                                   }}
-                                  className="p-1.5 text-stone-600 hover:text-stone-900 bg-white border border-stone-200 rounded-xl hover:border-stone-400 transition"
+                                  className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 bg-white border border-stone-200 rounded-lg hover:border-stone-400 transition"
                                   title="Изменить плановый бюджет категории"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
@@ -3690,14 +3761,14 @@ export default function FamilyBudgetApp() {
             </div>
 
             {/* РАЗДЕЛ 3: ДОЛГИ И КРЕДИТЫ (Обратные копилки) */}
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-100">
                 <div>
-                  <h2 className="text-base font-semibold tracking-tight text-stone-900 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
                     <span>💳</span>
                     <span>Долги и кредиты (Обратные копилки)</span>
                   </h2>
-                  <p className="text-xs text-stone-600">
+                  <p className="text-xs text-stone-500 mt-0.5">
                     Прогресс выплаты, ежемесячные платежи и точный прогноз даты полного закрытия
                   </p>
                 </div>
@@ -3711,7 +3782,7 @@ export default function FamilyBudgetApp() {
                     setNewDebtPayment('');
                     setIsNewDebtModalOpen(true);
                   }}
-                  className="text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-white px-3.5 py-2 rounded-2xl transition flex items-center gap-1.5 self-start sm:self-auto shadow-sm"
+                  className="h-9 px-3.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 self-start sm:self-auto shadow-sm shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Добавить кредит</span>
@@ -3719,15 +3790,15 @@ export default function FamilyBudgetApp() {
               </div>
 
               {debts.length === 0 ? (
-                <div className="bg-white rounded-3xl border border-stone-200/80 p-8 text-center shadow-sm">
+                <div className="py-8 text-center">
                   <div className="text-3xl mb-2">🎉</div>
                   <div className="text-sm font-semibold text-stone-800">Долгов и кредитов нет</div>
-                  <p className="text-xs text-stone-600 mt-1">
+                  <p className="text-xs text-stone-500 mt-1">
                     При необходимости вы можете добавить рассрочку, ипотеку или кредит
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                   {debts.map(debt => {
                     const init = Math.max(1, Number(debt.initialAmount) || 1);
                     const rem = Math.max(0, Number(debt.remainingAmount) || 0);
@@ -3749,29 +3820,31 @@ export default function FamilyBudgetApp() {
                     return (
                       <div
                         key={debt.id}
-                        className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-sm hover:border-stone-300 transition flex flex-col justify-between space-y-4 relative group"
+                        className="min-h-[212px] bg-stone-50/60 p-4 rounded-xl border border-stone-200/80 hover:border-stone-300 transition flex flex-col justify-between space-y-3 relative group"
                       >
                         <div>
                           <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2.5">
-                              <span className="text-2xl">{debt.icon}</span>
-                              <div>
-                                <h3 className="font-semibold text-stone-900 text-sm leading-tight">{debt.title}</h3>
-                                <span className="text-[11px] text-stone-600">
-                                  Платеж: {monthly.toLocaleString('ru-RU')} ₽ до {debt.paymentDay}-го числа
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="w-10 h-10 rounded-xl bg-white border border-stone-200/70 flex items-center justify-center text-xl shrink-0">
+                                {debt.icon}
+                              </span>
+                              <div className="min-w-0">
+                                <h3 className="font-semibold text-stone-900 text-sm leading-tight truncate">{debt.title}</h3>
+                                <span className="text-xs text-stone-500 tabular-nums">
+                                  Платёж: {monthly.toLocaleString('ru-RU')} ₽ до {debt.paymentDay}-го числа
                                 </span>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs font-bold text-stone-700 bg-stone-100 px-2.5 py-1 rounded-xl">
-                                {percent}% закрыто
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="h-7 px-2.5 rounded-lg bg-white border border-stone-200/80 text-xs font-bold text-stone-700 inline-flex items-center tabular-nums">
+                                {percent}%
                               </span>
                               <button
                                 type="button"
                                 onClick={(e) => openEditDebtModal(e, debt)}
                                 aria-label={`Изменить кредит ${debt.title}`}
-                                className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                                className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-white rounded-lg transition"
                                 title="Редактировать"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
@@ -3780,7 +3853,7 @@ export default function FamilyBudgetApp() {
                                 type="button"
                                 onClick={(e) => handleDeleteDebt(e, debt.id)}
                                 aria-label={`Удалить кредит ${debt.title}`}
-                                className="p-1.5 text-stone-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                                className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                                 title="Удалить"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -3788,14 +3861,14 @@ export default function FamilyBudgetApp() {
                             </div>
                           </div>
 
-                          <div className="space-y-1">
+                          <div className="space-y-1 tabular-nums">
                             <div className="flex items-center justify-between text-xs">
                               <span className="text-stone-600">Остаток долга:</span>
                               <span className="font-bold text-rose-600 text-sm">
                                 {rem.toLocaleString('ru-RU')} ₽
                               </span>
                             </div>
-                            <div className="flex items-center justify-between text-[11px] text-stone-600">
+                            <div className="flex items-center justify-between text-xs text-stone-500">
                               <span>Выплачено: {paid.toLocaleString('ru-RU')} ₽</span>
                               <span>Из: {init.toLocaleString('ru-RU')} ₽</span>
                             </div>
@@ -3803,26 +3876,26 @@ export default function FamilyBudgetApp() {
                         </div>
 
                         <div>
-                          <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden mb-2">
+                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden mb-2">
                             <div
                               className={`h-full rounded-full bg-gradient-to-r ${debt.color} transition-all duration-500`}
                               style={{ width: `${percent}%` }}
                             />
                           </div>
 
-                          <div className="flex items-center justify-between text-[11px] text-stone-600 mb-3">
+                          <div className="flex items-center justify-between text-xs text-stone-600 mb-3 tabular-nums">
                             <span>Прогноз закрытия:</span>
                             <span className="font-semibold text-stone-800">{forecastText}</span>
                           </div>
 
-                          <div className="flex items-center justify-between gap-2 pt-2 border-t border-stone-100">
-                            <span className={`text-[11px] font-medium ${isPaidThisMonth ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-stone-200/70">
+                            <span className={`text-xs font-medium ${isPaidThisMonth ? 'text-emerald-700' : 'text-amber-800'}`}>
                               {isPaidThisMonth ? '✓ Платёж за месяц внесен' : 'Платёж за месяц ожидает'}
                             </span>
                             <button
                               type="button"
                               onClick={() => openPayDebtModal(debt)}
-                              className="px-3.5 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold transition shadow-sm"
+                              className="h-8 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold transition shadow-sm inline-flex items-center"
                             >
                               Внести платёж
                             </button>
@@ -3840,14 +3913,14 @@ export default function FamilyBudgetApp() {
 
       {/* Мягкий Undo-тост */}
       {toast && (
-        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-stone-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-medium animate-fade-in max-w-[92vw]">
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-stone-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 text-xs font-medium animate-fade-in max-w-[92vw]">
           <span className="truncate">{toast.message}</span>
           {toast.onUndo && (
             toast.actionLabel && toast.actionLabel !== 'Вернуть' ? (
               <button
                 type="button"
                 onClick={toast.onUndo}
-                className="px-2.5 py-1 rounded-xl bg-amber-400 text-stone-950 font-bold hover:bg-amber-300 transition flex items-center gap-1 shrink-0"
+                className="h-7 px-2.5 rounded-lg bg-amber-400 text-stone-950 font-bold hover:bg-amber-300 transition inline-flex items-center gap-1 shrink-0"
               >
                 <span>{toast.actionLabel}</span>
               </button>
@@ -3855,7 +3928,7 @@ export default function FamilyBudgetApp() {
               <button
                 type="button"
                 onClick={toast.onUndo}
-                className="px-2.5 py-1 rounded-xl bg-amber-400 text-stone-950 font-bold hover:bg-amber-300 transition flex items-center gap-1 shrink-0"
+                className="h-7 px-2.5 rounded-lg bg-amber-400 text-stone-950 font-bold hover:bg-amber-300 transition inline-flex items-center gap-1 shrink-0"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>Вернуть</span>
@@ -3866,22 +3939,22 @@ export default function FamilyBudgetApp() {
             type="button"
             onClick={() => setToast(null)}
             aria-label="Закрыть уведомление"
-            className="text-stone-300 hover:text-white p-0.5"
+            className="text-stone-300 hover:text-white p-1"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* Нижний навигационный бар для мобильных (адаптирован под 360px + контраст WCAG AA text-stone-600) */}
+      {/* Нижний навигационный бар для мобильных — жесткая 5-колоночная сетка grid-cols-5 h-16 */}
       <nav
         aria-label="Мобильная навигация"
-        className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200 px-1.5 py-1 flex items-center justify-around md:hidden"
+        className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200 px-2 h-16 grid grid-cols-5 items-center lg:hidden"
       >
         <button
           type="button"
           onClick={() => setActiveTab('dashboard')}
-          className={`flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-xl text-[10px] whitespace-nowrap transition ${
+          className={`h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] whitespace-nowrap transition ${
             activeTab === 'dashboard' ? 'text-stone-900 font-bold' : 'text-stone-600 font-medium'
           }`}
         >
@@ -3892,7 +3965,7 @@ export default function FamilyBudgetApp() {
         <button
           type="button"
           onClick={() => setActiveTab('history')}
-          className={`flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-xl text-[10px] whitespace-nowrap transition ${
+          className={`h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] whitespace-nowrap transition ${
             activeTab === 'history' ? 'text-stone-900 font-bold' : 'text-stone-600 font-medium'
           }`}
         >
@@ -3900,33 +3973,35 @@ export default function FamilyBudgetApp() {
           <span>Чеки</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => openNewTransactionModal()}
-          aria-label="Быстрая запись операции"
-          className="w-10 h-10 bg-stone-900 text-white rounded-2xl shadow-md flex items-center justify-center active:scale-95 transition mx-0.5 shrink-0"
-        >
-          <Plus className="w-5 h-5" />
-        </button>
+        <div className="flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => openNewTransactionModal()}
+            aria-label="Быстрая запись операции"
+            className="w-11 h-11 bg-stone-900 text-white rounded-xl shadow-md flex items-center justify-center active:scale-95 transition shrink-0"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        </div>
 
         <button
           type="button"
           onClick={() => setActiveTab('debts')}
-          className={`flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-xl text-[10px] whitespace-nowrap transition relative ${
+          className={`h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] whitespace-nowrap transition relative ${
             activeTab === 'debts' ? 'text-stone-900 font-bold' : 'text-stone-600 font-medium'
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
           <span>Счета</span>
           {pendingBillsCount > 0 && (
-            <span className="w-2 h-2 rounded-full bg-amber-500 absolute top-1 right-1.5" />
+            <span className="w-2 h-2 rounded-full bg-amber-500 absolute top-1.5 right-4" />
           )}
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('goals')}
-          className={`flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-xl text-[10px] whitespace-nowrap transition ${
+          className={`h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] whitespace-nowrap transition ${
             activeTab === 'goals' ? 'text-stone-900 font-bold' : 'text-stone-600 font-medium'
           }`}
         >
