@@ -1484,7 +1484,7 @@ export default function FamilyBudgetApp() {
 
     const summaryRows = [
       ['Показатель', 'Значение (₽ / %)', 'Период / Комментарий'],
-      ['Версия приложения', 'v0.7.0', `Дата выгрузки: ${getLocalDateString()}`],
+      ['Версия приложения', 'v0.7.5', `Дата выгрузки: ${getLocalDateString()}`],
       ['Выбранный период', formatMonthTitle(selectedMonth), targetYm],
       ['Кумулятивный баланс: Общий котел', stats.shared.balance, `Доходы мес: +${stats.shared.monthIncome} / Расходы мес: -${stats.shared.monthExpense}`],
       ['Кумулятивный баланс: Личный (Муж)', stats.husbandPersonal.balance, `Доходы мес: +${stats.husbandPersonal.monthIncome} / Расходы мес: -${stats.husbandPersonal.monthExpense}`],
@@ -1596,7 +1596,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.0-${getLocalDateString()}.xlsx`;
+    a.download = `family-budget-v0.7.5-${getLocalDateString()}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1744,7 +1744,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.0-backup-${getLocalDateString()}.csv`;
+    a.download = `family-budget-v0.7.5-backup-${getLocalDateString()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1754,7 +1754,7 @@ export default function FamilyBudgetApp() {
 
   const handleDownloadJson = () => {
     const payload = {
-      version: '0.7.0',
+      version: '0.7.5',
       exportedAt: new Date().toISOString(),
       transactions,
       goals,
@@ -1762,12 +1762,14 @@ export default function FamilyBudgetApp() {
       debts,
       customCategories,
       plannedCategoryLimits,
+      userProfiles,
+      deviceOwner,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.0-backup-${getLocalDateString()}.json`;
+    a.download = `family-budget-v0.7.5-backup-${getLocalDateString()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1888,6 +1890,12 @@ export default function FamilyBudgetApp() {
           }
           if (parsed.plannedCategoryLimits && typeof parsed.plannedCategoryLimits === 'object') {
             setPlannedCategoryLimits(prev => isMerge ? { ...prev, ...parsed.plannedCategoryLimits } : parsed.plannedCategoryLimits);
+          }
+          if (parsed.userProfiles && typeof parsed.userProfiles === 'object') {
+            setUserProfiles(prev => isMerge ? { ...prev, ...parsed.userProfiles } : parsed.userProfiles);
+          }
+          if (parsed.deviceOwner && (parsed.deviceOwner === 'husband' || parsed.deviceOwner === 'wife')) {
+            setDeviceOwner(parsed.deviceOwner);
           }
           setIsExportModalOpen(false);
           showToast(
@@ -2121,7 +2129,7 @@ export default function FamilyBudgetApp() {
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
-    showToast('Демонстрационные данные v0.7.0 восстановлены');
+    showToast('Демонстрационные данные v0.7.5 восстановлены');
   };
 
   // Фильтрация истории операций
@@ -2490,7 +2498,7 @@ export default function FamilyBudgetApp() {
                   Семейный Бюджет
                 </h1>
                 <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
-                  v0.7.0
+                  v0.7.5
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">

@@ -33,7 +33,7 @@ export const isTransactionTypeLocked = (tx) => {
 
 export const isTransactionLockedType = isTransactionTypeLocked;
 
-// Чистая функция расчета безопасного дневного лимита и кассового разрыва (v0.7.0)
+// Чистая функция расчета безопасного дневного лимита и кассового разрыва (v0.7.5)
 export const calculateSafeDailyBudget = ({
   activeBalance = 0,
   unpaidMandatoryTotal = 0,
@@ -63,7 +63,7 @@ export const calculateSafeDailyBudget = ({
   };
 };
 
-// Безопасное слияние (Merge) транзакций с фильтрацией дубликатов по ID и сигнатуре (v0.7.0)
+// Безопасное слияние (Merge) транзакций с фильтрацией дубликатов по ID и сигнатуре (v0.7.5)
 export const mergeTransactions = (existingTxs = [], incomingTxs = []) => {
   const existingIds = new Set(existingTxs.map((t) => String(t.id)));
   const existingSignatures = new Set(
