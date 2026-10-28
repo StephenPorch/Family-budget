@@ -8,6 +8,8 @@ export const ChartsSection = React.memo(function ChartsSection({
   burnDownData,
   rule503020Data,
   dynamics6MonthsData,
+  partnerComparisonData,
+  userProfiles,
   daysInMonth,
 }) {
   return (
@@ -22,16 +24,16 @@ export const ChartsSection = React.memo(function ChartsSection({
             <span>Финансовый радар и аналитика</span>
           </h2>
           <p className="text-xs text-stone-500 mt-0.5">
-            Потребительский темп без искажения копилками, баланс 50/30/20 и история за 6 мес.
+            Потребительский темп без искажения копилками, баланс 50/30/20, динамика и вклад партнеров.
           </p>
         </div>
 
         {/* Сегментированный контрол фиксированной высоты h-9 */}
-        <div className="grid grid-cols-3 sm:flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-9 self-stretch sm:self-auto">
+        <div className="grid grid-cols-2 sm:flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-auto sm:h-9 self-stretch sm:self-auto">
           <button
             type="button"
             onClick={() => setChartView('burndown')}
-            className={`h-7 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
+            className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
               chartView === 'burndown' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
@@ -40,20 +42,30 @@ export const ChartsSection = React.memo(function ChartsSection({
           <button
             type="button"
             onClick={() => setChartView('rule503020')}
-            className={`h-7 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
+            className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
               chartView === 'rule503020' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            3 корзины (50/30/20)
+            50/30/20
           </button>
           <button
             type="button"
             onClick={() => setChartView('dynamics')}
-            className={`h-7 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
+            className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
               chartView === 'dynamics' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            Динамика 6 мес
+            Динамика
+          </button>
+          <button
+            type="button"
+            onClick={() => setChartView('partners')}
+            className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap gap-1 ${
+              chartView === 'partners' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <span>👥</span>
+            <span>Партнеры</span>
           </button>
         </div>
       </div>
@@ -347,6 +359,104 @@ export const ChartsSection = React.memo(function ChartsSection({
                 })}
               </svg>
             </div>
+          </div>
+        )}
+
+        {/* ГРАФИК 4: Сравнительный баланс и вклад партнеров */}
+        {chartView === 'partners' && (
+          <div className="flex-1 flex flex-col justify-between space-y-3 animate-fade-in">
+            {partnerComparisonData ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* Карточка Партнера 1 */}
+                  <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{partnerComparisonData.partner1.emoji}</span>
+                        <div>
+                          <span className="text-xs font-bold text-stone-900 block leading-tight">
+                            {partnerComparisonData.partner1.name}
+                          </span>
+                          <span className="text-[10px] text-stone-500">Личный профиль</span>
+                        </div>
+                      </div>
+                      <div className="text-right tabular-nums">
+                        <span className="text-[10px] text-stone-500 block">Свободное сальдо</span>
+                        <span className={`text-xs font-bold ${partnerComparisonData.partner1.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                          {partnerComparisonData.partner1.net >= 0 ? '+' : ''}{partnerComparisonData.partner1.net.toLocaleString('ru-RU')} ₽
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-xs tabular-nums">
+                      <div className="flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Заработано:</span>
+                        <span className="font-semibold text-emerald-700">+{partnerComparisonData.partner1.income.toLocaleString('ru-RU')} ₽</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Личные расходы:</span>
+                        <span className="font-semibold text-stone-800">−{partnerComparisonData.partner1.personalExpense.toLocaleString('ru-RU')} ₽</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Вклад в семейный бюджет:</span>
+                        <span className="font-semibold text-violet-700">−{partnerComparisonData.partner1.sharedContribution.toLocaleString('ru-RU')} ₽</span>
+                      </div>
+                      <div className="pt-1.5 border-t border-stone-200/60 flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Норма сбережений:</span>
+                        <span className="font-bold text-stone-900">{partnerComparisonData.partner1.savingsRate}% от дохода</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Карточка Партнера 2 */}
+                  <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{partnerComparisonData.partner2.emoji}</span>
+                        <div>
+                          <span className="text-xs font-bold text-stone-900 block leading-tight">
+                            {partnerComparisonData.partner2.name}
+                          </span>
+                          <span className="text-[10px] text-stone-500">Личный профиль</span>
+                        </div>
+                      </div>
+                      <div className="text-right tabular-nums">
+                        <span className="text-[10px] text-stone-500 block">Свободное сальдо</span>
+                        <span className={`text-xs font-bold ${partnerComparisonData.partner2.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                          {partnerComparisonData.partner2.net >= 0 ? '+' : ''}{partnerComparisonData.partner2.net.toLocaleString('ru-RU')} ₽
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-xs tabular-nums">
+                      <div className="flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Заработано:</span>
+                        <span className="font-semibold text-emerald-700">+{partnerComparisonData.partner2.income.toLocaleString('ru-RU')} ₽</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Личные расходы:</span>
+                        <span className="font-semibold text-stone-800">−{partnerComparisonData.partner2.personalExpense.toLocaleString('ru-RU')} ₽</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Вклад в семейный бюджет:</span>
+                        <span className="font-semibold text-violet-700">−{partnerComparisonData.partner2.sharedContribution.toLocaleString('ru-RU')} ₽</span>
+                      </div>
+                      <div className="pt-1.5 border-t border-stone-200/60 flex items-center justify-between">
+                        <span className="text-stone-500 text-[11px]">Норма сбережений:</span>
+                        <span className="font-bold text-stone-900">{partnerComparisonData.partner2.savingsRate}% от дохода</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-stone-100/80 rounded-xl text-stone-600 text-[11px] flex items-center justify-between">
+                  <span>Общие семейные расходы за период: <b>{partnerComparisonData.sharedPool.totalExpense.toLocaleString('ru-RU')} ₽</b></span>
+                  <span className="text-stone-500">Раздельный учет без взаимных претензий</span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-stone-500 text-center py-8">Нет данных для сравнения</div>
+            )}
           </div>
         )}
       </div>

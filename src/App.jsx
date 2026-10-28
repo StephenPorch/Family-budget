@@ -26,6 +26,7 @@ import {
   INITIAL_GOALS,
   INITIAL_RECURRING,
   INITIAL_DEBTS,
+  INITIAL_USER_PROFILES,
   DEFAULT_EXPENSE_CATEGORIES,
   GOAL_COLOR_PRESETS,
 } from './utils/storage.js';
@@ -37,6 +38,7 @@ import {
   isSavingsOrDebtTx,
   isTransactionTypeLocked,
   getRecurringReminderStatus,
+  calculatePartnerComparison,
 } from './utils/financeCore.js';
 
 import { ChartsSection } from './components/analytics/ChartsSection.jsx';
@@ -50,15 +52,29 @@ import {
   PayRecurringModal,
   DebtFormModal,
   PayDebtModal,
+  ProfileEditModal,
 } from './components/modals/EntityModals.jsx';
 
 export default function FamilyBudgetApp() {
-  const [currentUser, setCurrentUser] = useState('husband'); // 'husband' | 'wife'
+  // Профили пользователей и владелец устройства (Personal-First)
+  const [userProfiles, setUserProfiles] = useState(() =>
+    loadFromStorage('family_budget_profiles', INITIAL_USER_PROFILES)
+  );
+  const [deviceOwner, setDeviceOwner] = useState(() =>
+    loadFromStorage('family_budget_device_owner', 'husband')
+  );
+  const [currentUser, setCurrentUser] = useState(() =>
+    loadFromStorage('family_budget_device_owner', 'husband')
+  );
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'history' | 'goals' | 'debts'
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthPrefix); // 'YYYY-MM' | 'all'
 
-  // Фокус кошелька в дашборде: 'shared' | 'husband' | 'wife'
-  const [activeWalletCard, setActiveWalletCard] = useState('shared');
+  // Фокус кошелька в дашборде: по умолчанию личный счет владельца устройства
+  const [activeWalletCard, setActiveWalletCard] = useState(() =>
+    loadFromStorage('family_budget_device_owner', 'husband')
+  );
+
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   // Вид аналитических графиков на вкладке «Обзор»: 'burndown' | 'rule503020' | 'dynamics'
   const [chartView, setChartView] = useState('burndown');
@@ -142,6 +158,7 @@ export default function FamilyBudgetApp() {
   const [newDebtAuthor, setNewDebtAuthor] = useState('husband');
   const [newDebtIcon, setNewDebtIcon] = useState('💳');
   const [newDebtColor, setNewDebtColor] = useState(GOAL_COLOR_PRESETS[4].value);
+  const [newDebtIsRegular, setNewDebtIsRegular] = useState(true);
 
   // Форма внесения платежа по долгу
   const [selectedDebtId, setSelectedDebtId] = useState(null);
@@ -191,6 +208,14 @@ export default function FamilyBudgetApp() {
   }, [debts]);
 
   useEffect(() => {
+    saveToStorage('family_budget_profiles', userProfiles);
+  }, [userProfiles]);
+
+  useEffect(() => {
+    saveToStorage('family_budget_device_owner', deviceOwner);
+  }, [deviceOwner]);
+
+  useEffect(() => {
     saveToStorage('family_budget_custom_categories', customCategories);
   }, [customCategories]);
 
@@ -209,6 +234,7 @@ export default function FamilyBudgetApp() {
         setIsPayRecurringModalOpen(false);
         setIsNewDebtModalOpen(false);
         setIsPayDebtModalOpen(false);
+        setIsProfileModalOpen(false);
         setIsExportModalOpen(false);
       }
     };
@@ -279,6 +305,7 @@ export default function FamilyBudgetApp() {
     });
 
     debts.forEach(d => {
+      if (d.isRegular === false) return;
       if ((Number(d.remainingAmount) || 0) <= 0) return;
       if ((d.paidMonths || []).includes(targetYm)) return;
       const val = Math.min(Number(d.remainingAmount) || 0, Number(d.monthlyPayment) || 0);
@@ -306,7 +333,7 @@ export default function FamilyBudgetApp() {
       .sort((a, b) => a.status.daysDiff - b.status.daysDiff);
 
     const unpaidDebtList = debts
-      .filter(d => (Number(d.remainingAmount) || 0) > 0 && !(d.paidMonths || []).includes(targetYm));
+      .filter(d => d.isRegular !== false && (Number(d.remainingAmount) || 0) > 0 && !(d.paidMonths || []).includes(targetYm));
 
     const urgentRecs = unpaidRecList.filter(r => r.status.code === 'overdue' || r.status.code === 'today' || r.status.code === 'soon');
 
@@ -319,6 +346,11 @@ export default function FamilyBudgetApp() {
   }, [recurringPayments, debts, selectedMonth]);
 
   const pendingBillsCount = reminderSummary.pendingCount;
+
+  // Сравнительный баланс партнеров за выбранный месяц
+  const partnerComparisonData = useMemo(() => {
+    return calculatePartnerComparison(transactions, userProfiles, selectedMonth);
+  }, [transactions, userProfiles, selectedMonth]);
 
   // ================= АНАЛИЗ ПРОШЛЫХ МЕСЯЦЕВ И ПРОГНОЗ РАСХОДОВ =================
   const expenseForecastData = useMemo(() => {
@@ -1312,7 +1344,8 @@ export default function FamilyBudgetApp() {
 
   const openPayDebtModal = (debt) => {
     setSelectedDebtId(debt.id);
-    setDebtPayAmount(String(debt.monthlyPayment || ''));
+    const defAmt = (Number(debt.monthlyPayment) > 0) ? debt.monthlyPayment : Math.min(5000, Number(debt.remainingAmount) || 0);
+    setDebtPayAmount(String(defAmt || ''));
     setDebtSourceAccount(debt.account || 'shared');
     setDebtSourceAuthor(debt.author || currentUser);
     setDebtPayDate(getTargetDateForMonth(selectedMonth, debt.paymentDay));
@@ -1325,12 +1358,13 @@ export default function FamilyBudgetApp() {
     setNewDebtTitle(debt.title);
     setNewDebtInitial(String(debt.initialAmount));
     setNewDebtRemaining(String(debt.remainingAmount));
-    setNewDebtPayment(String(debt.monthlyPayment));
+    setNewDebtPayment(String(debt.monthlyPayment || 0));
     setNewDebtDay(String(debt.paymentDay || 12));
     setNewDebtAccount(debt.account || 'shared');
     setNewDebtAuthor(debt.author || 'husband');
     setNewDebtIcon(debt.icon || '💳');
     setNewDebtColor(debt.color || GOAL_COLOR_PRESETS[4].value);
+    setNewDebtIsRegular(debt.isRegular !== false);
     setIsNewDebtModalOpen(true);
   };
 
@@ -1340,7 +1374,8 @@ export default function FamilyBudgetApp() {
     if (!newDebtTitle.trim() || !initNum || initNum <= 0) return;
     const rawRem = newDebtRemaining !== '' ? parseFloat(newDebtRemaining) : initNum;
     const remNum = Math.min(initNum, Math.max(0, Number.isFinite(rawRem) ? rawRem : initNum));
-    const payNum = parseFloat(newDebtPayment) || Math.round(initNum / 12);
+    const isReg = Boolean(newDebtIsRegular);
+    const payNum = isReg ? (parseFloat(newDebtPayment) || Math.round(initNum / 12)) : 0;
     const payDay = Math.min(31, Math.max(1, parseInt(newDebtDay, 10) || 10));
 
     if (editingDebtId) {
@@ -1354,6 +1389,7 @@ export default function FamilyBudgetApp() {
                 remainingAmount: remNum,
                 monthlyPayment: payNum,
                 paymentDay: payDay,
+                isRegular: isReg,
                 account: newDebtAccount,
                 author: newDebtAuthor,
                 icon: newDebtIcon.trim() || '💳',
@@ -1362,7 +1398,7 @@ export default function FamilyBudgetApp() {
             : d
         )
       );
-      showToast(`Кредит «${newDebtTitle.trim()}» обновлен`);
+      showToast(`Обязательство «${newDebtTitle.trim()}» обновлено`);
     } else {
       const newDebt = {
         id: 'debt_' + Date.now(),
@@ -1371,6 +1407,7 @@ export default function FamilyBudgetApp() {
         remainingAmount: remNum,
         monthlyPayment: payNum,
         paymentDay: payDay,
+        isRegular: isReg,
         account: newDebtAccount,
         author: newDebtAuthor,
         paidMonths: [],
@@ -1378,7 +1415,7 @@ export default function FamilyBudgetApp() {
         color: newDebtColor,
       };
       setDebts(prev => [...prev, newDebt]);
-      showToast(`Кредит «${newDebt.title}» добавлен`);
+      showToast(`Обязательство «${newDebt.title}» добавлено`);
     }
 
     setEditingDebtId(null);
@@ -1386,6 +1423,7 @@ export default function FamilyBudgetApp() {
     setNewDebtInitial('');
     setNewDebtRemaining('');
     setNewDebtPayment('');
+    setNewDebtIsRegular(true);
     setIsNewDebtModalOpen(false);
   };
 
@@ -2402,8 +2440,8 @@ export default function FamilyBudgetApp() {
               <span className="truncate font-medium text-stone-600">{catObj.name}</span>
               <span className="text-stone-300">•</span>
               <span className="inline-flex items-center gap-1 text-stone-600 shrink-0">
-                <span>{tx.author === 'husband' ? '🧔🏻‍♂️' : '👩🏼'}</span>
-                <span>{isShared ? 'Общий' : 'Личный'}</span>
+                <span>{tx.author === 'husband' ? (userProfiles.husband?.emoji || '🧔🏻‍♂️') : (userProfiles.wife?.emoji || '👩🏼')}</span>
+                <span>{isShared ? 'Общий котел' : (tx.author === 'husband' ? (userProfiles.husband?.name || 'Личный') : (userProfiles.wife?.name || 'Личный'))}</span>
               </span>
               <span className="text-stone-300">•</span>
               <span className="text-stone-500 font-mono text-[11px] tabular-nums shrink-0">{tx.date}</span>
@@ -2428,6 +2466,13 @@ export default function FamilyBudgetApp() {
       </div>
     );
   };
+
+  const myWalletKey = deviceOwner === 'wife' ? 'wife' : 'husband';
+  const partnerWalletKey = deviceOwner === 'wife' ? 'husband' : 'wife';
+  const myProfile = userProfiles[myWalletKey] || { name: 'Я', emoji: '👤' };
+  const partnerProfile = userProfiles[partnerWalletKey] || { name: 'Партнер', emoji: '👥' };
+  const myWalletStats = myWalletKey === 'wife' ? stats.wifePersonal : stats.husbandPersonal;
+  const partnerWalletStats = partnerWalletKey === 'wife' ? stats.wifePersonal : stats.husbandPersonal;
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-24 md:pb-12">
@@ -2524,32 +2569,55 @@ export default function FamilyBudgetApp() {
             })}
           </nav>
 
-          {/* Правый блок: все кнопки строго высоты h-10 */}
+          {/* Правый блок: переключатель профилей и настройки */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-10">
               <button
                 type="button"
-                onClick={() => setCurrentUser('husband')}
-                className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                onClick={() => {
+                  setCurrentUser('husband');
+                  setActiveWalletCard('husband');
+                }}
+                className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                   currentUser === 'husband'
                     ? 'bg-white text-stone-900 shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
+                title={`Активный пользователь: ${userProfiles.husband?.name || 'Партнер 1'}`}
               >
-                <span>🧔🏻‍♂️</span>
-                <span className="hidden xl:inline">Муж</span>
+                <span>{userProfiles.husband?.emoji || '🧔🏻‍♂️'}</span>
+                <span className="hidden sm:inline max-w-[85px] truncate">{userProfiles.husband?.name || 'Партнер 1'}</span>
+                {deviceOwner === 'husband' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" title="Владелец этого устройства" />
+                )}
               </button>
               <button
                 type="button"
-                onClick={() => setCurrentUser('wife')}
-                className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                onClick={() => {
+                  setCurrentUser('wife');
+                  setActiveWalletCard('wife');
+                }}
+                className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                   currentUser === 'wife'
                     ? 'bg-white text-stone-900 shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
+                title={`Активный пользователь: ${userProfiles.wife?.name || 'Партнер 2'}`}
               >
-                <span>👩🏼</span>
-                <span className="hidden xl:inline">Жена</span>
+                <span>{userProfiles.wife?.emoji || '👩🏼'}</span>
+                <span className="hidden sm:inline max-w-[85px] truncate">{userProfiles.wife?.name || 'Партнер 2'}</span>
+                {deviceOwner === 'wife' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="Владелец этого устройства" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsProfileModalOpen(true)}
+                aria-label="Настроить профили и владельца телефона"
+                className="w-7 h-7 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-200/70 rounded-lg transition"
+                title="Настроить имена, эмодзи и телефон"
+              >
+                <User className="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -2622,9 +2690,91 @@ export default function FamilyBudgetApp() {
               </div>
             )}
 
-            {/* 4 KPI-КАРТОЧКИ С ЖЕСТКОЙ МОДУЛЬНОЙ ВЫСОТОЙ h-[160px] И ЕДИНОЙ 3-ЗОННОЙ АНАТОМИЕЙ */}
+            {/* 4 KPI-КАРТОЧКИ (Personal-First: Мой счет -> Партнер -> Семейный резерв -> Безопасный лимит) */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-stretch">
-              {/* 1. Общий котел */}
+              {/* 1. Мой личный счет (владелец устройства) */}
+              <div
+                onClick={() => setActiveWalletCard(myWalletKey)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard(myWalletKey); }}
+                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
+                  activeWalletCard === myWalletKey
+                    ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
+                    : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
+                }`}
+              >
+                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
+                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                    <span>{myProfile.emoji}</span>
+                    <span className="truncate">{myProfile.name}</span>
+                  </span>
+                  <span className="h-5 px-2 rounded-md bg-stone-900 text-white text-[10px] font-semibold inline-flex items-center shrink-0">
+                    Мой счет
+                  </span>
+                </div>
+
+                <div className="my-auto">
+                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
+                    myWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
+                  }`}>
+                    {myWalletStats.balance.toLocaleString('ru-RU')} ₽
+                  </div>
+                  <div className={`text-xs mt-1.5 truncate ${
+                    myWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
+                  }`}>
+                    {myWalletStats.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
+                  </div>
+                </div>
+
+                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
+                  <span className="text-emerald-700 font-semibold truncate">+{myWalletStats.monthIncome.toLocaleString('ru-RU')}</span>
+                  <span className="text-rose-600 font-semibold truncate">−{myWalletStats.monthExpense.toLocaleString('ru-RU')}</span>
+                </div>
+              </div>
+
+              {/* 2. Личный счет партнера */}
+              <div
+                onClick={() => setActiveWalletCard(partnerWalletKey)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard(partnerWalletKey); }}
+                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
+                  activeWalletCard === partnerWalletKey
+                    ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
+                    : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
+                }`}
+              >
+                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
+                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                    <span>{partnerProfile.emoji}</span>
+                    <span className="truncate">{partnerProfile.name}</span>
+                  </span>
+                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
+                    Партнер
+                  </span>
+                </div>
+
+                <div className="my-auto">
+                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
+                    partnerWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
+                  }`}>
+                    {partnerWalletStats.balance.toLocaleString('ru-RU')} ₽
+                  </div>
+                  <div className={`text-xs mt-1.5 truncate ${
+                    partnerWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
+                  }`}>
+                    {partnerWalletStats.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
+                  </div>
+                </div>
+
+                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
+                  <span className="text-emerald-700 font-semibold truncate">+{partnerWalletStats.monthIncome.toLocaleString('ru-RU')}</span>
+                  <span className="text-rose-600 font-semibold truncate">−{partnerWalletStats.monthExpense.toLocaleString('ru-RU')}</span>
+                </div>
+              </div>
+
+              {/* 3. Семейный резерв (Общий котел как подушка/копилка) */}
               <div
                 onClick={() => setActiveWalletCard('shared')}
                 role="button"
@@ -2639,10 +2789,10 @@ export default function FamilyBudgetApp() {
                 <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
                   <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
                     <span>👥</span>
-                    <span className="truncate">Общий котел</span>
+                    <span className="truncate">Семейный резерв</span>
                   </span>
                   <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                    Семья
+                    Копилка
                   </span>
                 </div>
 
@@ -2655,7 +2805,7 @@ export default function FamilyBudgetApp() {
                   <div className={`text-xs mt-1.5 truncate ${
                     stats.shared.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
                   }`}>
-                    {stats.shared.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
+                    {stats.shared.balance < 0 ? '⚠️ Дефицит счета' : 'Подушка / Котел'}
                   </div>
                 </div>
 
@@ -2665,89 +2815,7 @@ export default function FamilyBudgetApp() {
                 </div>
               </div>
 
-              {/* 2. Личный: Муж */}
-              <div
-                onClick={() => setActiveWalletCard('husband')}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('husband'); }}
-                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
-                  activeWalletCard === 'husband'
-                    ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
-                    : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
-                }`}
-              >
-                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
-                    <span>🧔🏻‍♂️</span>
-                    <span className="truncate">Муж (Личный)</span>
-                  </span>
-                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                    Свой
-                  </span>
-                </div>
-
-                <div className="my-auto">
-                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
-                    stats.husbandPersonal.balance < 0 ? 'text-rose-600' : 'text-stone-900'
-                  }`}>
-                    {stats.husbandPersonal.balance.toLocaleString('ru-RU')} ₽
-                  </div>
-                  <div className={`text-xs mt-1.5 truncate ${
-                    stats.husbandPersonal.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
-                  }`}>
-                    {stats.husbandPersonal.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
-                  </div>
-                </div>
-
-                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
-                  <span className="text-emerald-700 font-semibold truncate">+{stats.husbandPersonal.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-semibold truncate">−{stats.husbandPersonal.monthExpense.toLocaleString('ru-RU')}</span>
-                </div>
-              </div>
-
-              {/* 3. Личный: Жена */}
-              <div
-                onClick={() => setActiveWalletCard('wife')}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('wife'); }}
-                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
-                  activeWalletCard === 'wife'
-                    ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
-                    : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
-                }`}
-              >
-                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
-                    <span>👩🏼</span>
-                    <span className="truncate">Жена (Личный)</span>
-                  </span>
-                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                    Свой
-                  </span>
-                </div>
-
-                <div className="my-auto">
-                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
-                    stats.wifePersonal.balance < 0 ? 'text-rose-600' : 'text-stone-900'
-                  }`}>
-                    {stats.wifePersonal.balance.toLocaleString('ru-RU')} ₽
-                  </div>
-                  <div className={`text-xs mt-1.5 truncate ${
-                    stats.wifePersonal.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
-                  }`}>
-                    {stats.wifePersonal.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
-                  </div>
-                </div>
-
-                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
-                  <span className="text-emerald-700 font-semibold truncate">+{stats.wifePersonal.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-semibold truncate">−{stats.wifePersonal.monthExpense.toLocaleString('ru-RU')}</span>
-                </div>
-              </div>
-
-              {/* 4. Безопасный лимит в день / Индикатор кассового разрыва (строго 2 строки в центре + футер = 160px) */}
+              {/* 4. Безопасный лимит в день / Индикатор кассового разрыва */}
               <div className={`h-[160px] text-white p-4 sm:p-5 rounded-2xl shadow-md flex flex-col justify-between ${
                 stats.hasCashGap
                   ? 'bg-gradient-to-br from-rose-900 to-stone-900'
@@ -2784,9 +2852,9 @@ export default function FamilyBudgetApp() {
                           ? 'Период завершен'
                           : activeWalletCard === 'shared'
                           ? `Общий • на ${stats.daysLeft} дн.`
-                          : activeWalletCard === 'husband'
-                          ? `Личный (Муж) • на ${stats.daysLeft} дн.`
-                          : `Личный (Жена) • на ${stats.daysLeft} дн.`}
+                          : activeWalletCard === myWalletKey
+                          ? `${myProfile.name} (Мой) • на ${stats.daysLeft} дн.`
+                          : `${partnerProfile.name} • на ${stats.daysLeft} дн.`}
                       </div>
                     </>
                   )}
@@ -2819,6 +2887,8 @@ export default function FamilyBudgetApp() {
               burnDownData={burnDownData}
               rule503020Data={rule503020Data}
               dynamics6MonthsData={dynamics6MonthsData}
+              partnerComparisonData={partnerComparisonData}
+              userProfiles={userProfiles}
               daysInMonth={stats.daysInMonth}
             />
 
@@ -2830,7 +2900,7 @@ export default function FamilyBudgetApp() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 mb-3.5 border-b border-stone-100">
                     <div>
                       <h2 className="text-sm font-semibold text-stone-900">
-                        Структура расходов ({activeWalletCard === 'shared' ? 'Общий котел 👥' : activeWalletCard === 'husband' ? 'Личный: Муж 🧔🏻‍♂️' : 'Личный: Жена 👩🏼'})
+                        Структура расходов ({activeWalletCard === 'shared' ? 'Семейный резерв 👥' : activeWalletCard === myWalletKey ? `${myProfile.name} ${myProfile.emoji}` : `${partnerProfile.name} ${partnerProfile.emoji}`})
                       </h2>
                       <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
                         Потребительские траты: <strong className="text-stone-800">{stats.totalSelectedExpense.toLocaleString('ru-RU')} ₽</strong>
@@ -3160,8 +3230,8 @@ export default function FamilyBudgetApp() {
                     <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
                       {[
                         { id: 'all', label: 'Все' },
-                        { id: 'husband', label: '🧔🏻‍♂️ Муж' },
-                        { id: 'wife', label: '👩🏼 Жена' },
+                        { id: 'husband', label: `${userProfiles.husband?.emoji || '🧔🏻‍♂️'} ${userProfiles.husband?.name || 'Партнер 1'}` },
+                        { id: 'wife', label: `${userProfiles.wife?.emoji || '👩🏼'} ${userProfiles.wife?.name || 'Партнер 2'}` },
                       ].map(opt => (
                         <button
                           key={opt.id}
@@ -3813,7 +3883,9 @@ export default function FamilyBudgetApp() {
                     const now = new Date();
                     const offsetMonths = Math.max(0, monthsLeft - (isPaidThisMonth ? 0 : 1));
                     const closeDate = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
-                    const forecastText = monthsLeft > 0
+                    const forecastText = debt.isRegular === false && monthly <= 0
+                      ? 'По мере возможности'
+                      : monthsLeft > 0
                       ? `${monthsLeft} пл. (${MONTH_NAMES_NOMINATIVE[closeDate.getMonth()]} ${closeDate.getFullYear()})`
                       : 'Полностью закрыт! 🎉';
 
@@ -3831,7 +3903,9 @@ export default function FamilyBudgetApp() {
                               <div className="min-w-0">
                                 <h3 className="font-semibold text-stone-900 text-sm leading-tight truncate">{debt.title}</h3>
                                 <span className="text-xs text-stone-500 tabular-nums">
-                                  Платёж: {monthly.toLocaleString('ru-RU')} ₽ до {debt.paymentDay}-го числа
+                                  {debt.isRegular === false
+                                    ? 'Гибкий долг / свободное погашение'
+                                    : `Платёж: ${monthly.toLocaleString('ru-RU')} ₽ до ${debt.paymentDay}-го числа`}
                                 </span>
                               </div>
                             </div>
@@ -3889,8 +3963,8 @@ export default function FamilyBudgetApp() {
                           </div>
 
                           <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-stone-200/70">
-                            <span className={`text-xs font-medium ${isPaidThisMonth ? 'text-emerald-700' : 'text-amber-800'}`}>
-                              {isPaidThisMonth ? '✓ Платёж за месяц внесен' : 'Платёж за месяц ожидает'}
+                            <span className={`text-xs font-medium ${isPaidThisMonth ? 'text-emerald-700' : (debt.isRegular === false ? 'text-stone-500' : 'text-amber-800')}`}>
+                              {isPaidThisMonth ? '✓ Платёж за месяц внесен' : (debt.isRegular === false ? 'Свободный график' : 'Платёж за месяц ожидает')}
                             </span>
                             <button
                               type="button"
@@ -4109,12 +4183,15 @@ export default function FamilyBudgetApp() {
         setNewDebtDay={setNewDebtDay}
         newDebtIcon={newDebtIcon}
         setNewDebtIcon={setNewDebtIcon}
+        newDebtIsRegular={newDebtIsRegular}
+        setNewDebtIsRegular={setNewDebtIsRegular}
         onSubmit={handleCreateDebt}
       />
 
       <PayDebtModal
         isOpen={isPayDebtModalOpen}
         onClose={() => setIsPayDebtModalOpen(false)}
+        activeDebt={debts.find(d => d.id === selectedDebtId)}
         debtSourceAccount={debtSourceAccount}
         setDebtSourceAccount={setDebtSourceAccount}
         debtSourceAuthor={debtSourceAuthor}
@@ -4123,7 +4200,21 @@ export default function FamilyBudgetApp() {
         setDebtPayAmount={setDebtPayAmount}
         debtPayDate={debtPayDate}
         setDebtPayDate={setDebtPayDate}
+        userProfiles={userProfiles}
         onSubmit={handlePayDebtSubmit}
+      />
+
+      <ProfileEditModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        userProfiles={userProfiles}
+        onSaveProfiles={setUserProfiles}
+        deviceOwner={deviceOwner}
+        onSaveDeviceOwner={(owner) => {
+          setDeviceOwner(owner);
+          setCurrentUser(owner);
+          setActiveWalletCard(owner);
+        }}
       />
 
       <ExportBackupModal

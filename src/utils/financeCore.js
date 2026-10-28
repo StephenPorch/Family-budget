@@ -96,13 +96,100 @@ export const mergeTransactions = (existingTxs = [], incomingTxs = []) => {
 
 // Расчет остатка и срока закрытия долга/кредита
 export const calculateDebtPayoff = (debt) => {
-  const total = Math.max(0, Number(debt?.totalAmount) || 0);
-  const paid = Math.max(0, Number(debt?.paidAmount) || 0);
-  const remaining = Math.max(0, total - paid);
-  const monthly = Math.max(0, Number(debt?.monthlyPayment) || 0);
+  const total = Math.max(0, Number(debt?.initialAmount ?? debt?.totalAmount) || 0);
+  const rawRemaining = debt?.remainingAmount !== undefined ? Number(debt.remainingAmount) : (total - (Number(debt?.paidAmount) || 0));
+  const remaining = Math.max(0, Math.min(total, Number.isFinite(rawRemaining) ? rawRemaining : total));
+  const paid = Math.max(0, total - remaining);
+  const isRegular = debt?.isRegular !== false;
+  const monthly = isRegular ? Math.max(0, Number(debt?.monthlyPayment) || 0) : 0;
   const progressPct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 100;
-  const monthsLeft = remaining === 0 ? 0 : monthly > 0 ? Math.ceil(remaining / monthly) : null;
-  return { remaining, progressPct, monthsLeft };
+  const monthsLeft = remaining === 0 ? 0 : (isRegular && monthly > 0) ? Math.ceil(remaining / monthly) : null;
+  return { total, paid, remaining, progressPct, monthsLeft, isRegular, monthly };
+};
+
+// Сравнительный баланс и эффективность двух партнеров за месяц
+export const calculatePartnerComparison = (transactions = [], userProfiles = {}, targetYm = getCurrentMonthPrefix()) => {
+  const p1 = userProfiles.husband || { name: 'Партнер 1', emoji: '🧔🏻‍♂️' };
+  const p2 = userProfiles.wife || { name: 'Партнер 2', emoji: '👩🏼' };
+
+  let p1Income = 0;
+  let p1PersonalExpense = 0;
+  let p1SharedContribution = 0;
+
+  let p2Income = 0;
+  let p2PersonalExpense = 0;
+  let p2SharedContribution = 0;
+
+  let sharedPoolExpense = 0;
+  let sharedPoolIncome = 0;
+
+  for (const tx of transactions) {
+    const ym = (tx.date || '').slice(0, 7);
+    if (targetYm && targetYm !== 'all' && ym !== targetYm) continue;
+
+    const amt = Math.round(Number(tx.amount) || 0);
+    const author = tx.author || 'husband';
+    const acc = tx.account || 'shared';
+
+    if (tx.type === 'income') {
+      if (acc === 'personal') {
+        if (author === 'wife') p2Income += amt;
+        else p1Income += amt;
+      } else {
+        sharedPoolIncome += amt;
+        if (author === 'wife') p2Income += amt;
+        else p1Income += amt;
+      }
+    } else if (tx.type === 'expense') {
+      if (acc === 'personal') {
+        if (author === 'wife') p2PersonalExpense += amt;
+        else p1PersonalExpense += amt;
+      } else {
+        sharedPoolExpense += amt;
+        if (author === 'wife') p2SharedContribution += amt;
+        else p1SharedContribution += amt;
+      }
+    }
+  }
+
+  const p1TotalOut = p1PersonalExpense + p1SharedContribution;
+  const p2TotalOut = p2PersonalExpense + p2SharedContribution;
+
+  const p1Net = p1Income - p1TotalOut;
+  const p2Net = p2Income - p2TotalOut;
+
+  const p1SavingsRate = p1Income > 0 ? Math.max(0, Math.round((p1Net / p1Income) * 100)) : 0;
+  const p2SavingsRate = p2Income > 0 ? Math.max(0, Math.round((p2Net / p2Income) * 100)) : 0;
+
+  return {
+    targetYm,
+    partner1: {
+      id: 'husband',
+      name: p1.name || 'Партнер 1',
+      emoji: p1.emoji || '🧔🏻‍♂️',
+      income: p1Income,
+      personalExpense: p1PersonalExpense,
+      sharedContribution: p1SharedContribution,
+      totalOut: p1TotalOut,
+      net: p1Net,
+      savingsRate: p1SavingsRate,
+    },
+    partner2: {
+      id: 'wife',
+      name: p2.name || 'Партнер 2',
+      emoji: p2.emoji || '👩🏼',
+      income: p2Income,
+      personalExpense: p2PersonalExpense,
+      sharedContribution: p2SharedContribution,
+      totalOut: p2TotalOut,
+      net: p2Net,
+      savingsRate: p2SavingsRate,
+    },
+    sharedPool: {
+      totalIncome: sharedPoolIncome,
+      totalExpense: sharedPoolExpense,
+    },
+  };
 };
 
 // Расчет прогноза переменных трат на основе предыдущих месяцев

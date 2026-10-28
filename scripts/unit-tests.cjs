@@ -19,6 +19,7 @@ async function runTests() {
     mergeTransactions,
     calculateDebtPayoff,
     calculateHistoricalForecast,
+    calculatePartnerComparison,
   } = await import(financeCoreUrl);
 
   const { parseCsvText } = await import(csvUrl);
@@ -131,7 +132,61 @@ async function runTests() {
     console.log('  ✅ Test 6 PASSED: RFC 4180 CSV parser');
   }
 
-  console.log('🎉 All 6 test suites in unit-tests.cjs PASSED!');
+  // Test 7: Flexible Debts & Partner Comparison (Personal-First)
+  {
+    // Flexible casual loan (no rigid monthly payment)
+    const flexDebt = calculateDebtPayoff({
+      initialAmount: 60000,
+      remainingAmount: 45000,
+      monthlyPayment: 0,
+      isRegular: false,
+    });
+    assert.strictEqual(flexDebt.isRegular, false);
+    assert.strictEqual(flexDebt.remaining, 45000);
+    assert.strictEqual(flexDebt.monthsLeft, null);
+
+    // Regular bank credit
+    const bankLoan = calculateDebtPayoff({
+      initialAmount: 100000,
+      remainingAmount: 40000,
+      monthlyPayment: 10000,
+      isRegular: true,
+    });
+    assert.strictEqual(bankLoan.isRegular, true);
+    assert.strictEqual(bankLoan.monthsLeft, 4);
+
+    // Partner comparison calculation
+    const testProfiles = {
+      husband: { name: 'Женя', emoji: '🧑🏻‍💻' },
+      wife: { name: 'Ксюша', emoji: '👩🏻‍🎨' },
+    };
+    const testTxs = [
+      { date: '2026-10-05', type: 'income', amount: 150000, author: 'husband', account: 'personal' },
+      { date: '2026-10-06', type: 'expense', amount: 30000, author: 'husband', account: 'personal' },
+      { date: '2026-10-07', type: 'expense', amount: 40000, author: 'husband', account: 'shared' },
+      { date: '2026-10-08', type: 'income', amount: 120000, author: 'wife', account: 'personal' },
+      { date: '2026-10-09', type: 'expense', amount: 25000, author: 'wife', account: 'personal' },
+      { date: '2026-10-10', type: 'expense', amount: 35000, author: 'wife', account: 'shared' },
+    ];
+    const comparison = calculatePartnerComparison(testTxs, testProfiles, '2026-10');
+    assert.strictEqual(comparison.partner1.name, 'Женя');
+    assert.strictEqual(comparison.partner1.income, 150000);
+    assert.strictEqual(comparison.partner1.personalExpense, 30000);
+    assert.strictEqual(comparison.partner1.sharedContribution, 40000);
+    assert.strictEqual(comparison.partner1.net, 80000);
+    assert.strictEqual(comparison.partner1.savingsRate, 53);
+
+    assert.strictEqual(comparison.partner2.name, 'Ксюша');
+    assert.strictEqual(comparison.partner2.income, 120000);
+    assert.strictEqual(comparison.partner2.personalExpense, 25000);
+    assert.strictEqual(comparison.partner2.sharedContribution, 35000);
+    assert.strictEqual(comparison.partner2.net, 60000);
+    assert.strictEqual(comparison.partner2.savingsRate, 50);
+
+    console.log('  ✅ Test 7 PASSED: Flexible debt payoff & partner comparative balance analytics');
+  }
+
+  console.log('🎉 All 7 test suites in unit-tests.cjs PASSED!');
 }
 
 runTests().catch((err) => {

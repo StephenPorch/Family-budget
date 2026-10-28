@@ -10,6 +10,7 @@ export const TransactionModal = React.memo(function TransactionModal({
   initialTx,
   presetConfig,
   currentUser,
+  userProfiles,
   isLockedType,
   customCategories,
   onCreateCustomCategory,
@@ -312,13 +313,15 @@ export const TransactionModal = React.memo(function TransactionModal({
                   setSelectedAccount('personal');
                   setTxAuthor('husband');
                 }}
-                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
                   selectedAccount === 'personal' && txAuthor === 'husband'
                     ? 'bg-stone-900 text-white shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
+                title={`Личный счет: ${userProfiles?.husband?.name || 'Партнер 1'}`}
               >
-                🧔🏻‍♂️ Карта мужа
+                <span>{userProfiles?.husband?.emoji || '🧔🏻‍♂️'}</span>
+                <span className="truncate">{userProfiles?.husband?.name || 'Партнер 1'}</span>
               </button>
 
               <button
@@ -327,13 +330,15 @@ export const TransactionModal = React.memo(function TransactionModal({
                   setSelectedAccount('personal');
                   setTxAuthor('wife');
                 }}
-                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
                   selectedAccount === 'personal' && txAuthor === 'wife'
                     ? 'bg-stone-900 text-white shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
+                title={`Личный счет: ${userProfiles?.wife?.name || 'Партнер 2'}`}
               >
-                👩🏼 Карта жены
+                <span>{userProfiles?.wife?.emoji || '👩🏼'}</span>
+                <span className="truncate">{userProfiles?.wife?.name || 'Партнер 2'}</span>
               </button>
             </div>
           </div>

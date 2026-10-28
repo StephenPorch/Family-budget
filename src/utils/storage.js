@@ -64,9 +64,18 @@ export const INITIAL_RECURRING = [
   { id: 'rec_4', title: 'Детский сад / Секции', amount: 12000, category: 'Дети и секции', account: 'shared', author: 'wife', dueDate: 28, isMandatory: true, paidMonths: [] },
 ];
 
+export const INITIAL_USER_PROFILES = {
+  husband: { id: 'husband', name: 'Женя', emoji: '🧔🏻‍♂️', color: 'blue' },
+  wife: { id: 'wife', name: 'Ксюша', emoji: '👩🏼', color: 'rose' },
+};
+
+export const QUICK_USER_AVATARS = [
+  '🧔🏻‍♂️', '👩🏼', '🧑🏻‍💻', '👩🏻‍🎨', '🦁', '🦊', '🐱', '🚀', '⚡', '💎', '🎯', '☕', '🎮', '🌸', '☀️', '🌿'
+];
+
 export const INITIAL_DEBTS = [
-  { id: 'debt_1', title: 'Автокредит', initialAmount: 600000, remainingAmount: 240000, monthlyPayment: 20000, paymentDay: 12, account: 'shared', author: 'husband', paidMonths: ['2026-10'], icon: '🚗', color: 'from-amber-500 to-rose-500' },
-  { id: 'debt_2', title: 'Рассрочка на технику', initialAmount: 90000, remainingAmount: 30000, monthlyPayment: 15000, paymentDay: 26, account: 'shared', author: 'husband', paidMonths: [], icon: '📱', color: 'from-blue-500 to-indigo-500' },
+  { id: 'debt_1', title: 'Автокредит', initialAmount: 600000, remainingAmount: 240000, monthlyPayment: 20000, paymentDay: 12, isRegular: true, account: 'shared', author: 'husband', paidMonths: ['2026-10'], icon: '🚗', color: 'from-amber-500 to-rose-500' },
+  { id: 'debt_2', title: 'Рассрочка на технику', initialAmount: 90000, remainingAmount: 30000, monthlyPayment: 0, paymentDay: null, isRegular: false, account: 'shared', author: 'husband', paidMonths: [], icon: '📱', color: 'from-blue-500 to-indigo-500' },
 ];
 
 export const DEFAULT_EXPENSE_CATEGORIES = [

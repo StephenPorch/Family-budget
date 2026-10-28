@@ -552,6 +552,8 @@ export const DebtFormModal = React.memo(function DebtFormModal({
   setNewDebtPayment,
   newDebtDay,
   setNewDebtDay,
+  newDebtIsRegular,
+  setNewDebtIsRegular,
   newDebtIcon,
   setNewDebtIcon,
   onSubmit,
@@ -568,10 +570,10 @@ export const DebtFormModal = React.memo(function DebtFormModal({
       aria-modal="true"
       aria-labelledby="new-debt-modal-title"
     >
-      <div ref={modalRef} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-stone-200">
+      <div ref={modalRef} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-stone-200 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-stone-100">
           <span id="new-debt-modal-title" className="font-semibold text-stone-900 text-sm">
-            {editingDebtId ? 'Редактирование кредита' : 'Новый кредит или рассрочка'}
+            {editingDebtId ? 'Редактирование обязательства' : 'Новый долг, кредит или рассрочка'}
           </span>
           <button
             type="button"
@@ -585,11 +587,35 @@ export const DebtFormModal = React.memo(function DebtFormModal({
 
         <form onSubmit={onSubmit} className="pt-4 space-y-4">
           <div>
+            <label className="text-xs font-medium text-stone-600 block mb-1.5">Тип обязательства</label>
+            <div className="grid grid-cols-2 gap-1 bg-stone-100 p-1 rounded-xl h-10 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setNewDebtIsRegular(true)}
+                className={`h-8 rounded-lg transition flex items-center justify-center ${
+                  newDebtIsRegular ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                📅 Фикс. платеж
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewDebtIsRegular(false)}
+                className={`h-8 rounded-lg transition flex items-center justify-center ${
+                  !newDebtIsRegular ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                ⚡ По возможности
+              </button>
+            </div>
+          </div>
+
+          <div>
             <label className="text-xs font-medium text-stone-600 block mb-1.5">Название обязательства</label>
             <input
               type="text"
               required
-              placeholder="Например: Ипотека, Рассрочка на ноутбук"
+              placeholder="Например: Долг другу, Рассрочка, Автокредит"
               autoFocus
               value={newDebtTitle}
               onChange={(e) => setNewDebtTitle(e.target.value)}
@@ -599,13 +625,13 @@ export const DebtFormModal = React.memo(function DebtFormModal({
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="text-xs font-medium text-stone-600 block mb-1.5">Начальная сумма (₽)</label>
+              <label className="text-xs font-medium text-stone-600 block mb-1.5">Сумма долга (₽)</label>
               <input
                 type="number"
                 min="1"
                 step="any"
                 required
-                placeholder="300000"
+                placeholder="100000"
                 value={newDebtInitial}
                 onChange={(e) => setNewDebtInitial(e.target.value)}
                 className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
@@ -617,7 +643,7 @@ export const DebtFormModal = React.memo(function DebtFormModal({
                 type="number"
                 min="0"
                 step="any"
-                placeholder="Если пусто = нач."
+                placeholder="Если пусто = вся"
                 value={newDebtRemaining}
                 onChange={(e) => setNewDebtRemaining(e.target.value)}
                 className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
@@ -625,33 +651,42 @@ export const DebtFormModal = React.memo(function DebtFormModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="text-xs font-medium text-stone-600 block mb-1.5">Платёж в месяц (₽)</label>
-              <input
-                type="number"
-                min="1"
-                step="any"
-                required
-                placeholder="15000"
-                value={newDebtPayment}
-                onChange={(e) => setNewDebtPayment(e.target.value)}
-                className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
-              />
+          {newDebtIsRegular ? (
+            <div className="grid grid-cols-2 gap-2.5 animate-fade-in">
+              <div>
+                <label className="text-xs font-medium text-stone-600 block mb-1.5">Платёж в месяц (₽)</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="any"
+                  required
+                  placeholder="15000"
+                  value={newDebtPayment}
+                  onChange={(e) => setNewDebtPayment(e.target.value)}
+                  className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-stone-600 block mb-1.5">День платежа (1–31)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  required
+                  value={newDebtDay}
+                  onChange={(e) => setNewDebtDay(e.target.value)}
+                  className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                />
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-medium text-stone-600 block mb-1.5">День платежа (1–31)</label>
-              <input
-                type="number"
-                min="1"
-                max="31"
-                required
-                value={newDebtDay}
-                onChange={(e) => setNewDebtDay(e.target.value)}
-                className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
-              />
+          ) : (
+            <div className="p-3 bg-stone-100 rounded-xl border border-stone-200/60 text-xs text-stone-600 space-y-1">
+              <span className="font-semibold text-stone-800 flex items-center gap-1">⚡ Гибкое погашение</span>
+              <p className="text-[11px] leading-relaxed">
+                Платежи вносятся по возможности на любую сумму. Долг уменьшает капитал, но не урезает ежедневный лимит.
+              </p>
             </div>
-          </div>
+          )}
 
           <div>
             <label className="text-xs font-medium text-stone-600 block mb-1.5">Иконка</label>
@@ -675,7 +710,7 @@ export const DebtFormModal = React.memo(function DebtFormModal({
             type="submit"
             className="w-full h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition flex items-center justify-center"
           >
-            {editingDebtId ? 'Сохранить изменения' : 'Сохранить кредит'}
+            {editingDebtId ? 'Сохранить изменения' : 'Сохранить обязательство'}
           </button>
         </form>
       </div>
@@ -686,6 +721,8 @@ export const DebtFormModal = React.memo(function DebtFormModal({
 export const PayDebtModal = React.memo(function PayDebtModal({
   isOpen,
   onClose,
+  activeDebt,
+  userProfiles,
   debtSourceAccount,
   setDebtSourceAccount,
   debtSourceAuthor,
@@ -700,6 +737,10 @@ export const PayDebtModal = React.memo(function PayDebtModal({
   useFocusTrap(isOpen, modalRef);
   if (!isOpen) return null;
 
+  const p1 = userProfiles?.husband || { name: 'Муж', emoji: '🧔🏻‍♂️' };
+  const p2 = userProfiles?.wife || { name: 'Жена', emoji: '👩🏼' };
+  const rem = Math.max(0, Number(activeDebt?.remainingAmount) || 0);
+
   return (
     <div
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -710,7 +751,14 @@ export const PayDebtModal = React.memo(function PayDebtModal({
     >
       <div ref={modalRef} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-stone-200">
         <div className="flex items-center justify-between pb-3 border-b border-stone-100">
-          <span id="pay-debt-modal-title" className="font-semibold text-stone-900 text-sm">Внесение платежа по долгу</span>
+          <div>
+            <span id="pay-debt-modal-title" className="font-semibold text-stone-900 text-sm block">
+              Погашение: {activeDebt?.title || 'Долг'}
+            </span>
+            <span className="text-xs text-stone-500">
+              Остаток долга: <b className="text-stone-800 font-bold tabular-nums">{rem.toLocaleString('ru-RU')} ₽</b>
+            </span>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -728,8 +776,8 @@ export const PayDebtModal = React.memo(function PayDebtModal({
               <button
                 type="button"
                 onClick={() => setDebtSourceAccount('shared')}
-                className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
-                  debtSourceAccount === 'shared' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+                className={`h-8 rounded-lg font-medium transition flex items-center justify-center truncate px-1 ${
+                  debtSourceAccount === 'shared' ? 'bg-white text-stone-900 shadow-sm font-bold' : 'text-stone-600'
                 }`}
               >
                 👥 Общий
@@ -740,11 +788,12 @@ export const PayDebtModal = React.memo(function PayDebtModal({
                   setDebtSourceAccount('personal');
                   setDebtSourceAuthor('husband');
                 }}
-                className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
-                  debtSourceAccount === 'personal' && debtSourceAuthor === 'husband' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+                className={`h-8 rounded-lg font-medium transition flex items-center justify-center gap-1 truncate px-1 ${
+                  debtSourceAccount === 'personal' && debtSourceAuthor === 'husband' ? 'bg-white text-stone-900 shadow-sm font-bold' : 'text-stone-600'
                 }`}
               >
-                🧔🏻‍♂️ Муж
+                <span>{p1.emoji}</span>
+                <span className="truncate">{p1.name}</span>
               </button>
               <button
                 type="button"
@@ -752,38 +801,64 @@ export const PayDebtModal = React.memo(function PayDebtModal({
                   setDebtSourceAccount('personal');
                   setDebtSourceAuthor('wife');
                 }}
-                className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
-                  debtSourceAccount === 'personal' && debtSourceAuthor === 'wife' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+                className={`h-8 rounded-lg font-medium transition flex items-center justify-center gap-1 truncate px-1 ${
+                  debtSourceAccount === 'personal' && debtSourceAuthor === 'wife' ? 'bg-white text-stone-900 shadow-sm font-bold' : 'text-stone-600'
                 }`}
               >
-                👩🏼 Жена
+                <span>{p2.emoji}</span>
+                <span className="truncate">{p2.name}</span>
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="text-xs font-medium text-stone-600 block mb-1.5">Сумма платежа (₽)</label>
-              <input
-                type="number"
-                min="1"
-                step="any"
-                required
-                autoFocus
-                value={debtPayAmount}
-                onChange={(e) => setDebtPayAmount(e.target.value)}
-                className="w-full h-10 text-sm font-bold px-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
-              />
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-stone-600">Сумма платежа (₽)</label>
+              <span className="text-[11px] text-stone-500">любая сумма</span>
             </div>
-            <div>
-              <label className="text-xs font-medium text-stone-600 block mb-1.5">Дата платежа</label>
-              <input
-                type="date"
-                value={debtPayDate}
-                onChange={(e) => setDebtPayDate(e.target.value)}
-                className="w-full h-10 text-xs font-semibold px-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none text-stone-900 tabular-nums"
-              />
+            <input
+              type="number"
+              min="1"
+              step="any"
+              required
+              autoFocus
+              placeholder="Введите сумму"
+              value={debtPayAmount}
+              onChange={(e) => setDebtPayAmount(e.target.value)}
+              className="w-full h-10 text-sm font-bold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+            />
+            {/* Быстрые кнопки сумм */}
+            <div className="flex items-center gap-1.5 pt-2 flex-wrap">
+              {[1000, 5000, 10000].map(v => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setDebtPayAmount(String(v))}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg transition"
+                >
+                  +{v.toLocaleString('ru-RU')} ₽
+                </button>
+              ))}
+              {rem > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDebtPayAmount(String(rem))}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg transition"
+                >
+                  Весь остаток ({rem.toLocaleString('ru-RU')} ₽)
+                </button>
+              )}
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-stone-600 block mb-1.5">Дата платежа</label>
+            <input
+              type="date"
+              value={debtPayDate}
+              onChange={(e) => setDebtPayDate(e.target.value)}
+              className="w-full h-10 text-xs font-semibold px-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none text-stone-900 tabular-nums"
+            />
           </div>
 
           <button
@@ -791,6 +866,210 @@ export const PayDebtModal = React.memo(function PayDebtModal({
             className="w-full h-11 bg-rose-600 text-white rounded-xl font-semibold text-sm hover:bg-rose-700 transition shadow-sm flex items-center justify-center"
           >
             Подтвердить платёж
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+});
+
+export const ProfileEditModal = React.memo(function ProfileEditModal({
+  isOpen,
+  onClose,
+  userProfiles,
+  onSaveProfiles,
+  deviceOwner,
+  onSaveDeviceOwner,
+}) {
+  const modalRef = useRef(null);
+  useFocusTrap(isOpen, modalRef);
+
+  const [p1Name, setP1Name] = useState(userProfiles?.husband?.name || 'Партнер 1');
+  const [p1Emoji, setP1Emoji] = useState(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
+  const [p2Name, setP2Name] = useState(userProfiles?.wife?.name || 'Партнер 2');
+  const [p2Emoji, setP2Emoji] = useState(userProfiles?.wife?.emoji || '👩🏼');
+  const [selectedOwner, setSelectedOwner] = useState(deviceOwner || 'husband');
+
+  useEffect(() => {
+    if (isOpen) {
+      setP1Name(userProfiles?.husband?.name || 'Партнер 1');
+      setP1Emoji(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
+      setP2Name(userProfiles?.wife?.name || 'Партнер 2');
+      setP2Emoji(userProfiles?.wife?.emoji || '👩🏼');
+      setSelectedOwner(deviceOwner || 'husband');
+    }
+  }, [isOpen, userProfiles, deviceOwner]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSaveProfiles({
+      husband: { id: 'husband', name: p1Name.trim() || 'Партнер 1', emoji: p1Emoji, color: 'blue' },
+      wife: { id: 'wife', name: p2Name.trim() || 'Партнер 2', emoji: p2Emoji, color: 'rose' },
+    });
+    onSaveDeviceOwner(selectedOwner);
+    onClose();
+  };
+
+  const AVATARS = ['🧔🏻‍♂️', '👩🏼', '🧑🏻‍💻', '👩🏻‍🎨', '🦁', '🦊', '🐱', '🚀', '⚡', '💎', '🎯', '☕', '🎮', '🌸', '☀️', '🌿'];
+
+  return (
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profile-modal-title"
+    >
+      <div ref={modalRef} className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-stone-200 max-h-[92vh] overflow-y-auto space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-xl bg-stone-100 text-stone-800 flex items-center justify-center text-base">
+              👤
+            </span>
+            <span id="profile-modal-title" className="font-semibold text-stone-900 text-sm">
+              Настройка профилей и владельца
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть модальное окно"
+            className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+          {/* Партнер 1 */}
+          <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-stone-900">Профиль 1</span>
+              <span className="text-lg">{p1Emoji}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <label className="text-[11px] font-medium text-stone-500 block mb-1">Имя</label>
+                <input
+                  type="text"
+                  required
+                  value={p1Name}
+                  onChange={(e) => setP1Name(e.target.value)}
+                  className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-stone-500 block mb-1">Эмодзи</label>
+                <input
+                  type="text"
+                  value={p1Emoji}
+                  onChange={(e) => setP1Emoji(e.target.value)}
+                  className="w-full h-9 text-center text-sm font-semibold bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900"
+                />
+              </div>
+            </div>
+            <div className="flex gap-1.5 flex-wrap pt-1">
+              {AVATARS.slice(0, 8).map((av) => (
+                <button
+                  key={av}
+                  type="button"
+                  onClick={() => setP1Emoji(av)}
+                  className={`w-7 h-7 rounded-lg text-xs flex items-center justify-center border transition ${
+                    p1Emoji === av ? 'border-stone-900 bg-stone-200 font-bold' : 'border-stone-200 bg-white hover:bg-stone-100'
+                  }`}
+                >
+                  {av}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Партнер 2 */}
+          <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-stone-900">Профиль 2</span>
+              <span className="text-lg">{p2Emoji}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <label className="text-[11px] font-medium text-stone-500 block mb-1">Имя</label>
+                <input
+                  type="text"
+                  required
+                  value={p2Name}
+                  onChange={(e) => setP2Name(e.target.value)}
+                  className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-stone-500 block mb-1">Эмодзи</label>
+                <input
+                  type="text"
+                  value={p2Emoji}
+                  onChange={(e) => setP2Emoji(e.target.value)}
+                  className="w-full h-9 text-center text-sm font-semibold bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900"
+                />
+              </div>
+            </div>
+            <div className="flex gap-1.5 flex-wrap pt-1">
+              {AVATARS.slice(8).map((av) => (
+                <button
+                  key={av}
+                  type="button"
+                  onClick={() => setP2Emoji(av)}
+                  className={`w-7 h-7 rounded-lg text-xs flex items-center justify-center border transition ${
+                    p2Emoji === av ? 'border-stone-900 bg-stone-200 font-bold' : 'border-stone-200 bg-white hover:bg-stone-100'
+                  }`}
+                >
+                  {av}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Кто держит этот телефон / устройство прямо сейчас */}
+          <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200/70 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-amber-800 text-xs font-bold">📱 Владелец этого устройства:</span>
+            </div>
+            <p className="text-[11px] text-amber-900/80 leading-relaxed">
+              Приложение запомнит, чей это телефон, и будет открывать ваш личный кошелек первым по умолчанию.
+            </p>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setSelectedOwner('husband')}
+                className={`h-9 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border ${
+                  selectedOwner === 'husband'
+                    ? 'bg-stone-900 text-white border-stone-900 shadow-sm'
+                    : 'bg-white text-stone-700 border-amber-200/80 hover:bg-amber-100/50'
+                }`}
+              >
+                <span>{p1Emoji}</span>
+                <span className="truncate">{p1Name || 'Партнер 1'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedOwner('wife')}
+                className={`h-9 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border ${
+                  selectedOwner === 'wife'
+                    ? 'bg-stone-900 text-white border-stone-900 shadow-sm'
+                    : 'bg-white text-stone-700 border-amber-200/80 hover:bg-amber-100/50'
+                }`}
+              >
+                <span>{p2Emoji}</span>
+                <span className="truncate">{p2Name || 'Партнер 2'}</span>
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="w-full h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition flex items-center justify-center"
+          >
+            Сохранить настройки
           </button>
         </form>
       </div>

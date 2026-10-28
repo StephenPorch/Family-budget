@@ -265,9 +265,18 @@
       { id: 'rec_4', title: 'Детский сад / Секции', amount: 12000, category: 'Дети и секции', account: 'shared', author: 'wife', dueDate: 28, isMandatory: true, paidMonths: [] },
     ];
 
+    const INITIAL_USER_PROFILES = {
+      husband: { id: 'husband', name: 'Женя', emoji: '🧔🏻‍♂️', color: 'blue' },
+      wife: { id: 'wife', name: 'Ксюша', emoji: '👩🏼', color: 'rose' },
+    };
+
+    const QUICK_USER_AVATARS = [
+      '🧔🏻‍♂️', '👩🏼', '🧑🏻‍💻', '👩🏻‍🎨', '🦁', '🦊', '🐱', '🚀', '⚡', '💎', '🎯', '☕', '🎮', '🌸', '☀️', '🌿'
+    ];
+
     const INITIAL_DEBTS = [
-      { id: 'debt_1', title: 'Автокредит', initialAmount: 600000, remainingAmount: 240000, monthlyPayment: 20000, paymentDay: 12, account: 'shared', author: 'husband', paidMonths: ['2026-10'], icon: '🚗', color: 'from-amber-500 to-rose-500' },
-      { id: 'debt_2', title: 'Рассрочка на технику', initialAmount: 90000, remainingAmount: 30000, monthlyPayment: 15000, paymentDay: 26, account: 'shared', author: 'husband', paidMonths: [], icon: '📱', color: 'from-blue-500 to-indigo-500' },
+      { id: 'debt_1', title: 'Автокредит', initialAmount: 600000, remainingAmount: 240000, monthlyPayment: 20000, paymentDay: 12, isRegular: true, account: 'shared', author: 'husband', paidMonths: ['2026-10'], icon: '🚗', color: 'from-amber-500 to-rose-500' },
+      { id: 'debt_2', title: 'Рассрочка на технику', initialAmount: 90000, remainingAmount: 30000, monthlyPayment: 0, paymentDay: null, isRegular: false, account: 'shared', author: 'husband', paidMonths: [], icon: '📱', color: 'from-blue-500 to-indigo-500' },
     ];
 
     const DEFAULT_EXPENSE_CATEGORIES = [
@@ -674,13 +683,100 @@
 
     // Расчет остатка и срока закрытия долга/кредита
     const calculateDebtPayoff = (debt) => {
-      const total = Math.max(0, Number(debt?.totalAmount) || 0);
-      const paid = Math.max(0, Number(debt?.paidAmount) || 0);
-      const remaining = Math.max(0, total - paid);
-      const monthly = Math.max(0, Number(debt?.monthlyPayment) || 0);
+      const total = Math.max(0, Number(debt?.initialAmount ?? debt?.totalAmount) || 0);
+      const rawRemaining = debt?.remainingAmount !== undefined ? Number(debt.remainingAmount) : (total - (Number(debt?.paidAmount) || 0));
+      const remaining = Math.max(0, Math.min(total, Number.isFinite(rawRemaining) ? rawRemaining : total));
+      const paid = Math.max(0, total - remaining);
+      const isRegular = debt?.isRegular !== false;
+      const monthly = isRegular ? Math.max(0, Number(debt?.monthlyPayment) || 0) : 0;
       const progressPct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 100;
-      const monthsLeft = remaining === 0 ? 0 : monthly > 0 ? Math.ceil(remaining / monthly) : null;
-      return { remaining, progressPct, monthsLeft };
+      const monthsLeft = remaining === 0 ? 0 : (isRegular && monthly > 0) ? Math.ceil(remaining / monthly) : null;
+      return { total, paid, remaining, progressPct, monthsLeft, isRegular, monthly };
+    };
+
+    // Сравнительный баланс и эффективность двух партнеров за месяц
+    const calculatePartnerComparison = (transactions = [], userProfiles = {}, targetYm = getCurrentMonthPrefix()) => {
+      const p1 = userProfiles.husband || { name: 'Партнер 1', emoji: '🧔🏻‍♂️' };
+      const p2 = userProfiles.wife || { name: 'Партнер 2', emoji: '👩🏼' };
+
+      let p1Income = 0;
+      let p1PersonalExpense = 0;
+      let p1SharedContribution = 0;
+
+      let p2Income = 0;
+      let p2PersonalExpense = 0;
+      let p2SharedContribution = 0;
+
+      let sharedPoolExpense = 0;
+      let sharedPoolIncome = 0;
+
+      for (const tx of transactions) {
+        const ym = (tx.date || '').slice(0, 7);
+        if (targetYm && targetYm !== 'all' && ym !== targetYm) continue;
+
+        const amt = Math.round(Number(tx.amount) || 0);
+        const author = tx.author || 'husband';
+        const acc = tx.account || 'shared';
+
+        if (tx.type === 'income') {
+          if (acc === 'personal') {
+            if (author === 'wife') p2Income += amt;
+            else p1Income += amt;
+          } else {
+            sharedPoolIncome += amt;
+            if (author === 'wife') p2Income += amt;
+            else p1Income += amt;
+          }
+        } else if (tx.type === 'expense') {
+          if (acc === 'personal') {
+            if (author === 'wife') p2PersonalExpense += amt;
+            else p1PersonalExpense += amt;
+          } else {
+            sharedPoolExpense += amt;
+            if (author === 'wife') p2SharedContribution += amt;
+            else p1SharedContribution += amt;
+          }
+        }
+      }
+
+      const p1TotalOut = p1PersonalExpense + p1SharedContribution;
+      const p2TotalOut = p2PersonalExpense + p2SharedContribution;
+
+      const p1Net = p1Income - p1TotalOut;
+      const p2Net = p2Income - p2TotalOut;
+
+      const p1SavingsRate = p1Income > 0 ? Math.max(0, Math.round((p1Net / p1Income) * 100)) : 0;
+      const p2SavingsRate = p2Income > 0 ? Math.max(0, Math.round((p2Net / p2Income) * 100)) : 0;
+
+      return {
+        targetYm,
+        partner1: {
+          id: 'husband',
+          name: p1.name || 'Партнер 1',
+          emoji: p1.emoji || '🧔🏻‍♂️',
+          income: p1Income,
+          personalExpense: p1PersonalExpense,
+          sharedContribution: p1SharedContribution,
+          totalOut: p1TotalOut,
+          net: p1Net,
+          savingsRate: p1SavingsRate,
+        },
+        partner2: {
+          id: 'wife',
+          name: p2.name || 'Партнер 2',
+          emoji: p2.emoji || '👩🏼',
+          income: p2Income,
+          personalExpense: p2PersonalExpense,
+          sharedContribution: p2SharedContribution,
+          totalOut: p2TotalOut,
+          net: p2Net,
+          savingsRate: p2SavingsRate,
+        },
+        sharedPool: {
+          totalIncome: sharedPoolIncome,
+          totalExpense: sharedPoolExpense,
+        },
+      };
     };
 
     // Расчет прогноза переменных трат на основе предыдущих месяцев
@@ -815,6 +911,8 @@
       burnDownData,
       rule503020Data,
       dynamics6MonthsData,
+      partnerComparisonData,
+      userProfiles,
       daysInMonth,
     }) {
       return (
@@ -829,16 +927,16 @@
                 <span>Финансовый радар и аналитика</span>
               </h2>
               <p className="text-xs text-stone-500 mt-0.5">
-                Потребительский темп без искажения копилками, баланс 50/30/20 и история за 6 мес.
+                Потребительский темп без искажения копилками, баланс 50/30/20, динамика и вклад партнеров.
               </p>
             </div>
 
             {/* Сегментированный контрол фиксированной высоты h-9 */}
-            <div className="grid grid-cols-3 sm:flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-9 self-stretch sm:self-auto">
+            <div className="grid grid-cols-2 sm:flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-auto sm:h-9 self-stretch sm:self-auto">
               <button
                 type="button"
                 onClick={() => setChartView('burndown')}
-                className={`h-7 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
+                className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
                   chartView === 'burndown' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
@@ -847,20 +945,30 @@
               <button
                 type="button"
                 onClick={() => setChartView('rule503020')}
-                className={`h-7 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
+                className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
                   chartView === 'rule503020' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
-                3 корзины (50/30/20)
+                50/30/20
               </button>
               <button
                 type="button"
                 onClick={() => setChartView('dynamics')}
-                className={`h-7 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
+                className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap ${
                   chartView === 'dynamics' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
-                Динамика 6 мес
+                Динамика
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartView('partners')}
+                className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center whitespace-nowrap gap-1 ${
+                  chartView === 'partners' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <span>👥</span>
+                <span>Партнеры</span>
               </button>
             </div>
           </div>
@@ -1154,6 +1262,104 @@
                     })}
                   </svg>
                 </div>
+              </div>
+            )}
+
+            {/* ГРАФИК 4: Сравнительный баланс и вклад партнеров */}
+            {chartView === 'partners' && (
+              <div className="flex-1 flex flex-col justify-between space-y-3 animate-fade-in">
+                {partnerComparisonData ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {/* Карточка Партнера 1 */}
+                      <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">{partnerComparisonData.partner1.emoji}</span>
+                            <div>
+                              <span className="text-xs font-bold text-stone-900 block leading-tight">
+                                {partnerComparisonData.partner1.name}
+                              </span>
+                              <span className="text-[10px] text-stone-500">Личный профиль</span>
+                            </div>
+                          </div>
+                          <div className="text-right tabular-nums">
+                            <span className="text-[10px] text-stone-500 block">Свободное сальдо</span>
+                            <span className={`text-xs font-bold ${partnerComparisonData.partner1.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                              {partnerComparisonData.partner1.net >= 0 ? '+' : ''}{partnerComparisonData.partner1.net.toLocaleString('ru-RU')} ₽
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 text-xs tabular-nums">
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Заработано:</span>
+                            <span className="font-semibold text-emerald-700">+{partnerComparisonData.partner1.income.toLocaleString('ru-RU')} ₽</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Личные расходы:</span>
+                            <span className="font-semibold text-stone-800">−{partnerComparisonData.partner1.personalExpense.toLocaleString('ru-RU')} ₽</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Вклад в семейный бюджет:</span>
+                            <span className="font-semibold text-violet-700">−{partnerComparisonData.partner1.sharedContribution.toLocaleString('ru-RU')} ₽</span>
+                          </div>
+                          <div className="pt-1.5 border-t border-stone-200/60 flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Норма сбережений:</span>
+                            <span className="font-bold text-stone-900">{partnerComparisonData.partner1.savingsRate}% от дохода</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Карточка Партнера 2 */}
+                      <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">{partnerComparisonData.partner2.emoji}</span>
+                            <div>
+                              <span className="text-xs font-bold text-stone-900 block leading-tight">
+                                {partnerComparisonData.partner2.name}
+                              </span>
+                              <span className="text-[10px] text-stone-500">Личный профиль</span>
+                            </div>
+                          </div>
+                          <div className="text-right tabular-nums">
+                            <span className="text-[10px] text-stone-500 block">Свободное сальдо</span>
+                            <span className={`text-xs font-bold ${partnerComparisonData.partner2.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                              {partnerComparisonData.partner2.net >= 0 ? '+' : ''}{partnerComparisonData.partner2.net.toLocaleString('ru-RU')} ₽
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 text-xs tabular-nums">
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Заработано:</span>
+                            <span className="font-semibold text-emerald-700">+{partnerComparisonData.partner2.income.toLocaleString('ru-RU')} ₽</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Личные расходы:</span>
+                            <span className="font-semibold text-stone-800">−{partnerComparisonData.partner2.personalExpense.toLocaleString('ru-RU')} ₽</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Вклад в семейный бюджет:</span>
+                            <span className="font-semibold text-violet-700">−{partnerComparisonData.partner2.sharedContribution.toLocaleString('ru-RU')} ₽</span>
+                          </div>
+                          <div className="pt-1.5 border-t border-stone-200/60 flex items-center justify-between">
+                            <span className="text-stone-500 text-[11px]">Норма сбережений:</span>
+                            <span className="font-bold text-stone-900">{partnerComparisonData.partner2.savingsRate}% от дохода</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-stone-100/80 rounded-xl text-stone-600 text-[11px] flex items-center justify-between">
+                      <span>Общие семейные расходы за период: <b>{partnerComparisonData.sharedPool.totalExpense.toLocaleString('ru-RU')} ₽</b></span>
+                      <span className="text-stone-500">Раздельный учет без взаимных претензий</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-stone-500 text-center py-8">Нет данных для сравнения</div>
+                )}
               </div>
             )}
           </div>
@@ -1469,6 +1675,7 @@
       initialTx,
       presetConfig,
       currentUser,
+      userProfiles,
       isLockedType,
       customCategories,
       onCreateCustomCategory,
@@ -1771,13 +1978,15 @@
                       setSelectedAccount('personal');
                       setTxAuthor('husband');
                     }}
-                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
                       selectedAccount === 'personal' && txAuthor === 'husband'
                         ? 'bg-stone-900 text-white shadow-sm'
                         : 'text-stone-600 hover:text-stone-900'
                     }`}
+                    title={`Личный счет: ${userProfiles?.husband?.name || 'Партнер 1'}`}
                   >
-                    🧔🏻‍♂️ Карта мужа
+                    <span>{userProfiles?.husband?.emoji || '🧔🏻‍♂️'}</span>
+                    <span className="truncate">{userProfiles?.husband?.name || 'Партнер 1'}</span>
                   </button>
 
                   <button
@@ -1786,13 +1995,15 @@
                       setSelectedAccount('personal');
                       setTxAuthor('wife');
                     }}
-                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
                       selectedAccount === 'personal' && txAuthor === 'wife'
                         ? 'bg-stone-900 text-white shadow-sm'
                         : 'text-stone-600 hover:text-stone-900'
                     }`}
+                    title={`Личный счет: ${userProfiles?.wife?.name || 'Партнер 2'}`}
                   >
-                    👩🏼 Карта жены
+                    <span>{userProfiles?.wife?.emoji || '👩🏼'}</span>
+                    <span className="truncate">{userProfiles?.wife?.name || 'Партнер 2'}</span>
                   </button>
                 </div>
               </div>
@@ -2517,6 +2728,8 @@
       setNewDebtPayment,
       newDebtDay,
       setNewDebtDay,
+      newDebtIsRegular,
+      setNewDebtIsRegular,
       newDebtIcon,
       setNewDebtIcon,
       onSubmit,
@@ -2533,10 +2746,10 @@
           aria-modal="true"
           aria-labelledby="new-debt-modal-title"
         >
-          <div ref={modalRef} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-stone-200">
+          <div ref={modalRef} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-stone-200 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
               <span id="new-debt-modal-title" className="font-semibold text-stone-900 text-sm">
-                {editingDebtId ? 'Редактирование кредита' : 'Новый кредит или рассрочка'}
+                {editingDebtId ? 'Редактирование обязательства' : 'Новый долг, кредит или рассрочка'}
               </span>
               <button
                 type="button"
@@ -2550,11 +2763,35 @@
 
             <form onSubmit={onSubmit} className="pt-4 space-y-4">
               <div>
+                <label className="text-xs font-medium text-stone-600 block mb-1.5">Тип обязательства</label>
+                <div className="grid grid-cols-2 gap-1 bg-stone-100 p-1 rounded-xl h-10 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setNewDebtIsRegular(true)}
+                    className={`h-8 rounded-lg transition flex items-center justify-center ${
+                      newDebtIsRegular ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    📅 Фикс. платеж
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewDebtIsRegular(false)}
+                    className={`h-8 rounded-lg transition flex items-center justify-center ${
+                      !newDebtIsRegular ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    ⚡ По возможности
+                  </button>
+                </div>
+              </div>
+
+              <div>
                 <label className="text-xs font-medium text-stone-600 block mb-1.5">Название обязательства</label>
                 <input
                   type="text"
                   required
-                  placeholder="Например: Ипотека, Рассрочка на ноутбук"
+                  placeholder="Например: Долг другу, Рассрочка, Автокредит"
                   autoFocus
                   value={newDebtTitle}
                   onChange={(e) => setNewDebtTitle(e.target.value)}
@@ -2564,13 +2801,13 @@
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="text-xs font-medium text-stone-600 block mb-1.5">Начальная сумма (₽)</label>
+                  <label className="text-xs font-medium text-stone-600 block mb-1.5">Сумма долга (₽)</label>
                   <input
                     type="number"
                     min="1"
                     step="any"
                     required
-                    placeholder="300000"
+                    placeholder="100000"
                     value={newDebtInitial}
                     onChange={(e) => setNewDebtInitial(e.target.value)}
                     className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
@@ -2582,7 +2819,7 @@
                     type="number"
                     min="0"
                     step="any"
-                    placeholder="Если пусто = нач."
+                    placeholder="Если пусто = вся"
                     value={newDebtRemaining}
                     onChange={(e) => setNewDebtRemaining(e.target.value)}
                     className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
@@ -2590,33 +2827,42 @@
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-xs font-medium text-stone-600 block mb-1.5">Платёж в месяц (₽)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="any"
-                    required
-                    placeholder="15000"
-                    value={newDebtPayment}
-                    onChange={(e) => setNewDebtPayment(e.target.value)}
-                    className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
-                  />
+              {newDebtIsRegular ? (
+                <div className="grid grid-cols-2 gap-2.5 animate-fade-in">
+                  <div>
+                    <label className="text-xs font-medium text-stone-600 block mb-1.5">Платёж в месяц (₽)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      required
+                      placeholder="15000"
+                      value={newDebtPayment}
+                      onChange={(e) => setNewDebtPayment(e.target.value)}
+                      className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-stone-600 block mb-1.5">День платежа (1–31)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      required
+                      value={newDebtDay}
+                      onChange={(e) => setNewDebtDay(e.target.value)}
+                      className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-stone-600 block mb-1.5">День платежа (1–31)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="31"
-                    required
-                    value={newDebtDay}
-                    onChange={(e) => setNewDebtDay(e.target.value)}
-                    className="w-full h-10 text-xs font-semibold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
-                  />
+              ) : (
+                <div className="p-3 bg-stone-100 rounded-xl border border-stone-200/60 text-xs text-stone-600 space-y-1">
+                  <span className="font-semibold text-stone-800 flex items-center gap-1">⚡ Гибкое погашение</span>
+                  <p className="text-[11px] leading-relaxed">
+                    Платежи вносятся по возможности на любую сумму. Долг уменьшает капитал, но не урезает ежедневный лимит.
+                  </p>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label className="text-xs font-medium text-stone-600 block mb-1.5">Иконка</label>
@@ -2640,7 +2886,7 @@
                 type="submit"
                 className="w-full h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition flex items-center justify-center"
               >
-                {editingDebtId ? 'Сохранить изменения' : 'Сохранить кредит'}
+                {editingDebtId ? 'Сохранить изменения' : 'Сохранить обязательство'}
               </button>
             </form>
           </div>
@@ -2651,6 +2897,8 @@
     const PayDebtModal = React.memo(function PayDebtModal({
       isOpen,
       onClose,
+      activeDebt,
+      userProfiles,
       debtSourceAccount,
       setDebtSourceAccount,
       debtSourceAuthor,
@@ -2665,6 +2913,10 @@
       useFocusTrap(isOpen, modalRef);
       if (!isOpen) return null;
 
+      const p1 = userProfiles?.husband || { name: 'Муж', emoji: '🧔🏻‍♂️' };
+      const p2 = userProfiles?.wife || { name: 'Жена', emoji: '👩🏼' };
+      const rem = Math.max(0, Number(activeDebt?.remainingAmount) || 0);
+
       return (
         <div
           onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -2675,7 +2927,14 @@
         >
           <div ref={modalRef} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-stone-200">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
-              <span id="pay-debt-modal-title" className="font-semibold text-stone-900 text-sm">Внесение платежа по долгу</span>
+              <div>
+                <span id="pay-debt-modal-title" className="font-semibold text-stone-900 text-sm block">
+                  Погашение: {activeDebt?.title || 'Долг'}
+                </span>
+                <span className="text-xs text-stone-500">
+                  Остаток долга: <b className="text-stone-800 font-bold tabular-nums">{rem.toLocaleString('ru-RU')} ₽</b>
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={onClose}
@@ -2693,8 +2952,8 @@
                   <button
                     type="button"
                     onClick={() => setDebtSourceAccount('shared')}
-                    className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
-                      debtSourceAccount === 'shared' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+                    className={`h-8 rounded-lg font-medium transition flex items-center justify-center truncate px-1 ${
+                      debtSourceAccount === 'shared' ? 'bg-white text-stone-900 shadow-sm font-bold' : 'text-stone-600'
                     }`}
                   >
                     👥 Общий
@@ -2705,11 +2964,12 @@
                       setDebtSourceAccount('personal');
                       setDebtSourceAuthor('husband');
                     }}
-                    className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
-                      debtSourceAccount === 'personal' && debtSourceAuthor === 'husband' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+                    className={`h-8 rounded-lg font-medium transition flex items-center justify-center gap-1 truncate px-1 ${
+                      debtSourceAccount === 'personal' && debtSourceAuthor === 'husband' ? 'bg-white text-stone-900 shadow-sm font-bold' : 'text-stone-600'
                     }`}
                   >
-                    🧔🏻‍♂️ Муж
+                    <span>{p1.emoji}</span>
+                    <span className="truncate">{p1.name}</span>
                   </button>
                   <button
                     type="button"
@@ -2717,38 +2977,64 @@
                       setDebtSourceAccount('personal');
                       setDebtSourceAuthor('wife');
                     }}
-                    className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
-                      debtSourceAccount === 'personal' && debtSourceAuthor === 'wife' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+                    className={`h-8 rounded-lg font-medium transition flex items-center justify-center gap-1 truncate px-1 ${
+                      debtSourceAccount === 'personal' && debtSourceAuthor === 'wife' ? 'bg-white text-stone-900 shadow-sm font-bold' : 'text-stone-600'
                     }`}
                   >
-                    👩🏼 Жена
+                    <span>{p2.emoji}</span>
+                    <span className="truncate">{p2.name}</span>
                   </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-xs font-medium text-stone-600 block mb-1.5">Сумма платежа (₽)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="any"
-                    required
-                    autoFocus
-                    value={debtPayAmount}
-                    onChange={(e) => setDebtPayAmount(e.target.value)}
-                    className="w-full h-10 text-sm font-bold px-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
-                  />
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-stone-600">Сумма платежа (₽)</label>
+                  <span className="text-[11px] text-stone-500">любая сумма</span>
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-stone-600 block mb-1.5">Дата платежа</label>
-                  <input
-                    type="date"
-                    value={debtPayDate}
-                    onChange={(e) => setDebtPayDate(e.target.value)}
-                    className="w-full h-10 text-xs font-semibold px-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none text-stone-900 tabular-nums"
-                  />
+                <input
+                  type="number"
+                  min="1"
+                  step="any"
+                  required
+                  autoFocus
+                  placeholder="Введите сумму"
+                  value={debtPayAmount}
+                  onChange={(e) => setDebtPayAmount(e.target.value)}
+                  className="w-full h-10 text-sm font-bold px-3.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                />
+                {/* Быстрые кнопки сумм */}
+                <div className="flex items-center gap-1.5 pt-2 flex-wrap">
+                  {[1000, 5000, 10000].map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setDebtPayAmount(String(v))}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg transition"
+                    >
+                      +{v.toLocaleString('ru-RU')} ₽
+                    </button>
+                  ))}
+                  {rem > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setDebtPayAmount(String(rem))}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg transition"
+                    >
+                      Весь остаток ({rem.toLocaleString('ru-RU')} ₽)
+                    </button>
+                  )}
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-stone-600 block mb-1.5">Дата платежа</label>
+                <input
+                  type="date"
+                  value={debtPayDate}
+                  onChange={(e) => setDebtPayDate(e.target.value)}
+                  className="w-full h-10 text-xs font-semibold px-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none text-stone-900 tabular-nums"
+                />
               </div>
 
               <button
@@ -2763,16 +3049,233 @@
       );
     });
 
+    const ProfileEditModal = React.memo(function ProfileEditModal({
+      isOpen,
+      onClose,
+      userProfiles,
+      onSaveProfiles,
+      deviceOwner,
+      onSaveDeviceOwner,
+    }) {
+      const modalRef = useRef(null);
+      useFocusTrap(isOpen, modalRef);
+
+      const [p1Name, setP1Name] = useState(userProfiles?.husband?.name || 'Партнер 1');
+      const [p1Emoji, setP1Emoji] = useState(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
+      const [p2Name, setP2Name] = useState(userProfiles?.wife?.name || 'Партнер 2');
+      const [p2Emoji, setP2Emoji] = useState(userProfiles?.wife?.emoji || '👩🏼');
+      const [selectedOwner, setSelectedOwner] = useState(deviceOwner || 'husband');
+
+      useEffect(() => {
+        if (isOpen) {
+          setP1Name(userProfiles?.husband?.name || 'Партнер 1');
+          setP1Emoji(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
+          setP2Name(userProfiles?.wife?.name || 'Партнер 2');
+          setP2Emoji(userProfiles?.wife?.emoji || '👩🏼');
+          setSelectedOwner(deviceOwner || 'husband');
+        }
+      }, [isOpen, userProfiles, deviceOwner]);
+
+      if (!isOpen) return null;
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        onSaveProfiles({
+          husband: { id: 'husband', name: p1Name.trim() || 'Партнер 1', emoji: p1Emoji, color: 'blue' },
+          wife: { id: 'wife', name: p2Name.trim() || 'Партнер 2', emoji: p2Emoji, color: 'rose' },
+        });
+        onSaveDeviceOwner(selectedOwner);
+        onClose();
+      };
+
+      const AVATARS = ['🧔🏻‍♂️', '👩🏼', '🧑🏻‍💻', '👩🏻‍🎨', '🦁', '🦊', '🐱', '🚀', '⚡', '💎', '🎯', '☕', '🎮', '🌸', '☀️', '🌿'];
+
+      return (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="profile-modal-title"
+        >
+          <div ref={modalRef} className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-stone-200 max-h-[92vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-xl bg-stone-100 text-stone-800 flex items-center justify-center text-base">
+                  👤
+                </span>
+                <span id="profile-modal-title" className="font-semibold text-stone-900 text-sm">
+                  Настройка профилей и владельца
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Закрыть модальное окно"
+                className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+              {/* Партнер 1 */}
+              <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-stone-900">Профиль 1</span>
+                  <span className="text-lg">{p1Emoji}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-2">
+                    <label className="text-[11px] font-medium text-stone-500 block mb-1">Имя</label>
+                    <input
+                      type="text"
+                      required
+                      value={p1Name}
+                      onChange={(e) => setP1Name(e.target.value)}
+                      className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-stone-500 block mb-1">Эмодзи</label>
+                    <input
+                      type="text"
+                      value={p1Emoji}
+                      onChange={(e) => setP1Emoji(e.target.value)}
+                      className="w-full h-9 text-center text-sm font-semibold bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-1.5 flex-wrap pt-1">
+                  {AVATARS.slice(0, 8).map((av) => (
+                    <button
+                      key={av}
+                      type="button"
+                      onClick={() => setP1Emoji(av)}
+                      className={`w-7 h-7 rounded-lg text-xs flex items-center justify-center border transition ${
+                        p1Emoji === av ? 'border-stone-900 bg-stone-200 font-bold' : 'border-stone-200 bg-white hover:bg-stone-100'
+                      }`}
+                    >
+                      {av}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Партнер 2 */}
+              <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-stone-900">Профиль 2</span>
+                  <span className="text-lg">{p2Emoji}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-2">
+                    <label className="text-[11px] font-medium text-stone-500 block mb-1">Имя</label>
+                    <input
+                      type="text"
+                      required
+                      value={p2Name}
+                      onChange={(e) => setP2Name(e.target.value)}
+                      className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-stone-500 block mb-1">Эмодзи</label>
+                    <input
+                      type="text"
+                      value={p2Emoji}
+                      onChange={(e) => setP2Emoji(e.target.value)}
+                      className="w-full h-9 text-center text-sm font-semibold bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-1.5 flex-wrap pt-1">
+                  {AVATARS.slice(8).map((av) => (
+                    <button
+                      key={av}
+                      type="button"
+                      onClick={() => setP2Emoji(av)}
+                      className={`w-7 h-7 rounded-lg text-xs flex items-center justify-center border transition ${
+                        p2Emoji === av ? 'border-stone-900 bg-stone-200 font-bold' : 'border-stone-200 bg-white hover:bg-stone-100'
+                      }`}
+                    >
+                      {av}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Кто держит этот телефон / устройство прямо сейчас */}
+              <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200/70 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-amber-800 text-xs font-bold">📱 Владелец этого устройства:</span>
+                </div>
+                <p className="text-[11px] text-amber-900/80 leading-relaxed">
+                  Приложение запомнит, чей это телефон, и будет открывать ваш личный кошелек первым по умолчанию.
+                </p>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOwner('husband')}
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border ${
+                      selectedOwner === 'husband'
+                        ? 'bg-stone-900 text-white border-stone-900 shadow-sm'
+                        : 'bg-white text-stone-700 border-amber-200/80 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    <span>{p1Emoji}</span>
+                    <span className="truncate">{p1Name || 'Партнер 1'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOwner('wife')}
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border ${
+                      selectedOwner === 'wife'
+                        ? 'bg-stone-900 text-white border-stone-900 shadow-sm'
+                        : 'bg-white text-stone-700 border-amber-200/80 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    <span>{p2Emoji}</span>
+                    <span className="truncate">{p2Name || 'Партнер 2'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition flex items-center justify-center"
+              >
+                Сохранить настройки
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    });
+
     // ============================================================================
     // MODULE: src/App.jsx
     // ============================================================================
     function FamilyBudgetApp() {
-      const [currentUser, setCurrentUser] = useState('husband'); // 'husband' | 'wife'
+      // Профили пользователей и владелец устройства (Personal-First)
+      const [userProfiles, setUserProfiles] = useState(() =>
+        loadFromStorage('family_budget_profiles', INITIAL_USER_PROFILES)
+      );
+      const [deviceOwner, setDeviceOwner] = useState(() =>
+        loadFromStorage('family_budget_device_owner', 'husband')
+      );
+      const [currentUser, setCurrentUser] = useState(() =>
+        loadFromStorage('family_budget_device_owner', 'husband')
+      );
       const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'history' | 'goals' | 'debts'
       const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthPrefix); // 'YYYY-MM' | 'all'
 
-      // Фокус кошелька в дашборде: 'shared' | 'husband' | 'wife'
-      const [activeWalletCard, setActiveWalletCard] = useState('shared');
+      // Фокус кошелька в дашборде: по умолчанию личный счет владельца устройства
+      const [activeWalletCard, setActiveWalletCard] = useState(() =>
+        loadFromStorage('family_budget_device_owner', 'husband')
+      );
+
+      const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
       // Вид аналитических графиков на вкладке «Обзор»: 'burndown' | 'rule503020' | 'dynamics'
       const [chartView, setChartView] = useState('burndown');
@@ -2856,6 +3359,7 @@
       const [newDebtAuthor, setNewDebtAuthor] = useState('husband');
       const [newDebtIcon, setNewDebtIcon] = useState('💳');
       const [newDebtColor, setNewDebtColor] = useState(GOAL_COLOR_PRESETS[4].value);
+      const [newDebtIsRegular, setNewDebtIsRegular] = useState(true);
 
       // Форма внесения платежа по долгу
       const [selectedDebtId, setSelectedDebtId] = useState(null);
@@ -2905,6 +3409,14 @@
       }, [debts]);
 
       useEffect(() => {
+        saveToStorage('family_budget_profiles', userProfiles);
+      }, [userProfiles]);
+
+      useEffect(() => {
+        saveToStorage('family_budget_device_owner', deviceOwner);
+      }, [deviceOwner]);
+
+      useEffect(() => {
         saveToStorage('family_budget_custom_categories', customCategories);
       }, [customCategories]);
 
@@ -2923,6 +3435,7 @@
             setIsPayRecurringModalOpen(false);
             setIsNewDebtModalOpen(false);
             setIsPayDebtModalOpen(false);
+            setIsProfileModalOpen(false);
             setIsExportModalOpen(false);
           }
         };
@@ -2993,6 +3506,7 @@
         });
 
         debts.forEach(d => {
+          if (d.isRegular === false) return;
           if ((Number(d.remainingAmount) || 0) <= 0) return;
           if ((d.paidMonths || []).includes(targetYm)) return;
           const val = Math.min(Number(d.remainingAmount) || 0, Number(d.monthlyPayment) || 0);
@@ -3020,7 +3534,7 @@
           .sort((a, b) => a.status.daysDiff - b.status.daysDiff);
 
         const unpaidDebtList = debts
-          .filter(d => (Number(d.remainingAmount) || 0) > 0 && !(d.paidMonths || []).includes(targetYm));
+          .filter(d => d.isRegular !== false && (Number(d.remainingAmount) || 0) > 0 && !(d.paidMonths || []).includes(targetYm));
 
         const urgentRecs = unpaidRecList.filter(r => r.status.code === 'overdue' || r.status.code === 'today' || r.status.code === 'soon');
 
@@ -3033,6 +3547,11 @@
       }, [recurringPayments, debts, selectedMonth]);
 
       const pendingBillsCount = reminderSummary.pendingCount;
+
+      // Сравнительный баланс партнеров за выбранный месяц
+      const partnerComparisonData = useMemo(() => {
+        return calculatePartnerComparison(transactions, userProfiles, selectedMonth);
+      }, [transactions, userProfiles, selectedMonth]);
 
       // ================= АНАЛИЗ ПРОШЛЫХ МЕСЯЦЕВ И ПРОГНОЗ РАСХОДОВ =================
       const expenseForecastData = useMemo(() => {
@@ -4026,7 +4545,8 @@
 
       const openPayDebtModal = (debt) => {
         setSelectedDebtId(debt.id);
-        setDebtPayAmount(String(debt.monthlyPayment || ''));
+        const defAmt = (Number(debt.monthlyPayment) > 0) ? debt.monthlyPayment : Math.min(5000, Number(debt.remainingAmount) || 0);
+        setDebtPayAmount(String(defAmt || ''));
         setDebtSourceAccount(debt.account || 'shared');
         setDebtSourceAuthor(debt.author || currentUser);
         setDebtPayDate(getTargetDateForMonth(selectedMonth, debt.paymentDay));
@@ -4039,12 +4559,13 @@
         setNewDebtTitle(debt.title);
         setNewDebtInitial(String(debt.initialAmount));
         setNewDebtRemaining(String(debt.remainingAmount));
-        setNewDebtPayment(String(debt.monthlyPayment));
+        setNewDebtPayment(String(debt.monthlyPayment || 0));
         setNewDebtDay(String(debt.paymentDay || 12));
         setNewDebtAccount(debt.account || 'shared');
         setNewDebtAuthor(debt.author || 'husband');
         setNewDebtIcon(debt.icon || '💳');
         setNewDebtColor(debt.color || GOAL_COLOR_PRESETS[4].value);
+        setNewDebtIsRegular(debt.isRegular !== false);
         setIsNewDebtModalOpen(true);
       };
 
@@ -4054,7 +4575,8 @@
         if (!newDebtTitle.trim() || !initNum || initNum <= 0) return;
         const rawRem = newDebtRemaining !== '' ? parseFloat(newDebtRemaining) : initNum;
         const remNum = Math.min(initNum, Math.max(0, Number.isFinite(rawRem) ? rawRem : initNum));
-        const payNum = parseFloat(newDebtPayment) || Math.round(initNum / 12);
+        const isReg = Boolean(newDebtIsRegular);
+        const payNum = isReg ? (parseFloat(newDebtPayment) || Math.round(initNum / 12)) : 0;
         const payDay = Math.min(31, Math.max(1, parseInt(newDebtDay, 10) || 10));
 
         if (editingDebtId) {
@@ -4068,6 +4590,7 @@
                     remainingAmount: remNum,
                     monthlyPayment: payNum,
                     paymentDay: payDay,
+                    isRegular: isReg,
                     account: newDebtAccount,
                     author: newDebtAuthor,
                     icon: newDebtIcon.trim() || '💳',
@@ -4076,7 +4599,7 @@
                 : d
             )
           );
-          showToast(`Кредит «${newDebtTitle.trim()}» обновлен`);
+          showToast(`Обязательство «${newDebtTitle.trim()}» обновлено`);
         } else {
           const newDebt = {
             id: 'debt_' + Date.now(),
@@ -4085,6 +4608,7 @@
             remainingAmount: remNum,
             monthlyPayment: payNum,
             paymentDay: payDay,
+            isRegular: isReg,
             account: newDebtAccount,
             author: newDebtAuthor,
             paidMonths: [],
@@ -4092,7 +4616,7 @@
             color: newDebtColor,
           };
           setDebts(prev => [...prev, newDebt]);
-          showToast(`Кредит «${newDebt.title}» добавлен`);
+          showToast(`Обязательство «${newDebt.title}» добавлено`);
         }
 
         setEditingDebtId(null);
@@ -4100,6 +4624,7 @@
         setNewDebtInitial('');
         setNewDebtRemaining('');
         setNewDebtPayment('');
+        setNewDebtIsRegular(true);
         setIsNewDebtModalOpen(false);
       };
 
@@ -5116,8 +5641,8 @@
                   <span className="truncate font-medium text-stone-600">{catObj.name}</span>
                   <span className="text-stone-300">•</span>
                   <span className="inline-flex items-center gap-1 text-stone-600 shrink-0">
-                    <span>{tx.author === 'husband' ? '🧔🏻‍♂️' : '👩🏼'}</span>
-                    <span>{isShared ? 'Общий' : 'Личный'}</span>
+                    <span>{tx.author === 'husband' ? (userProfiles.husband?.emoji || '🧔🏻‍♂️') : (userProfiles.wife?.emoji || '👩🏼')}</span>
+                    <span>{isShared ? 'Общий котел' : (tx.author === 'husband' ? (userProfiles.husband?.name || 'Личный') : (userProfiles.wife?.name || 'Личный'))}</span>
                   </span>
                   <span className="text-stone-300">•</span>
                   <span className="text-stone-500 font-mono text-[11px] tabular-nums shrink-0">{tx.date}</span>
@@ -5142,6 +5667,13 @@
           </div>
         );
       };
+
+      const myWalletKey = deviceOwner === 'wife' ? 'wife' : 'husband';
+      const partnerWalletKey = deviceOwner === 'wife' ? 'husband' : 'wife';
+      const myProfile = userProfiles[myWalletKey] || { name: 'Я', emoji: '👤' };
+      const partnerProfile = userProfiles[partnerWalletKey] || { name: 'Партнер', emoji: '👥' };
+      const myWalletStats = myWalletKey === 'wife' ? stats.wifePersonal : stats.husbandPersonal;
+      const partnerWalletStats = partnerWalletKey === 'wife' ? stats.wifePersonal : stats.husbandPersonal;
 
       return (
         <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-24 md:pb-12">
@@ -5238,32 +5770,55 @@
                 })}
               </nav>
 
-              {/* Правый блок: все кнопки строго высоты h-10 */}
+              {/* Правый блок: переключатель профилей и настройки */}
               <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-10">
                   <button
                     type="button"
-                    onClick={() => setCurrentUser('husband')}
-                    className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                    onClick={() => {
+                      setCurrentUser('husband');
+                      setActiveWalletCard('husband');
+                    }}
+                    className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                       currentUser === 'husband'
                         ? 'bg-white text-stone-900 shadow-sm'
                         : 'text-stone-600 hover:text-stone-900'
                     }`}
+                    title={`Активный пользователь: ${userProfiles.husband?.name || 'Партнер 1'}`}
                   >
-                    <span>🧔🏻‍♂️</span>
-                    <span className="hidden xl:inline">Муж</span>
+                    <span>{userProfiles.husband?.emoji || '🧔🏻‍♂️'}</span>
+                    <span className="hidden sm:inline max-w-[85px] truncate">{userProfiles.husband?.name || 'Партнер 1'}</span>
+                    {deviceOwner === 'husband' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" title="Владелец этого устройства" />
+                    )}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setCurrentUser('wife')}
-                    className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                    onClick={() => {
+                      setCurrentUser('wife');
+                      setActiveWalletCard('wife');
+                    }}
+                    className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                       currentUser === 'wife'
                         ? 'bg-white text-stone-900 shadow-sm'
                         : 'text-stone-600 hover:text-stone-900'
                     }`}
+                    title={`Активный пользователь: ${userProfiles.wife?.name || 'Партнер 2'}`}
                   >
-                    <span>👩🏼</span>
-                    <span className="hidden xl:inline">Жена</span>
+                    <span>{userProfiles.wife?.emoji || '👩🏼'}</span>
+                    <span className="hidden sm:inline max-w-[85px] truncate">{userProfiles.wife?.name || 'Партнер 2'}</span>
+                    {deviceOwner === 'wife' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="Владелец этого устройства" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileModalOpen(true)}
+                    aria-label="Настроить профили и владельца телефона"
+                    className="w-7 h-7 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-200/70 rounded-lg transition"
+                    title="Настроить имена, эмодзи и телефон"
+                  >
+                    <User className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
@@ -5336,9 +5891,91 @@
                   </div>
                 )}
 
-                {/* 4 KPI-КАРТОЧКИ С ЖЕСТКОЙ МОДУЛЬНОЙ ВЫСОТОЙ h-[160px] И ЕДИНОЙ 3-ЗОННОЙ АНАТОМИЕЙ */}
+                {/* 4 KPI-КАРТОЧКИ (Personal-First: Мой счет -> Партнер -> Семейный резерв -> Безопасный лимит) */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-stretch">
-                  {/* 1. Общий котел */}
+                  {/* 1. Мой личный счет (владелец устройства) */}
+                  <div
+                    onClick={() => setActiveWalletCard(myWalletKey)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard(myWalletKey); }}
+                    className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
+                      activeWalletCard === myWalletKey
+                        ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
+                        : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
+                    }`}
+                  >
+                    <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
+                      <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                        <span>{myProfile.emoji}</span>
+                        <span className="truncate">{myProfile.name}</span>
+                      </span>
+                      <span className="h-5 px-2 rounded-md bg-stone-900 text-white text-[10px] font-semibold inline-flex items-center shrink-0">
+                        Мой счет
+                      </span>
+                    </div>
+
+                    <div className="my-auto">
+                      <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
+                        myWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
+                      }`}>
+                        {myWalletStats.balance.toLocaleString('ru-RU')} ₽
+                      </div>
+                      <div className={`text-xs mt-1.5 truncate ${
+                        myWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
+                      }`}>
+                        {myWalletStats.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
+                      </div>
+                    </div>
+
+                    <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
+                      <span className="text-emerald-700 font-semibold truncate">+{myWalletStats.monthIncome.toLocaleString('ru-RU')}</span>
+                      <span className="text-rose-600 font-semibold truncate">−{myWalletStats.monthExpense.toLocaleString('ru-RU')}</span>
+                    </div>
+                  </div>
+
+                  {/* 2. Личный счет партнера */}
+                  <div
+                    onClick={() => setActiveWalletCard(partnerWalletKey)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard(partnerWalletKey); }}
+                    className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
+                      activeWalletCard === partnerWalletKey
+                        ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
+                        : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
+                    }`}
+                  >
+                    <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
+                      <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                        <span>{partnerProfile.emoji}</span>
+                        <span className="truncate">{partnerProfile.name}</span>
+                      </span>
+                      <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
+                        Партнер
+                      </span>
+                    </div>
+
+                    <div className="my-auto">
+                      <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
+                        partnerWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
+                      }`}>
+                        {partnerWalletStats.balance.toLocaleString('ru-RU')} ₽
+                      </div>
+                      <div className={`text-xs mt-1.5 truncate ${
+                        partnerWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
+                      }`}>
+                        {partnerWalletStats.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
+                      </div>
+                    </div>
+
+                    <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
+                      <span className="text-emerald-700 font-semibold truncate">+{partnerWalletStats.monthIncome.toLocaleString('ru-RU')}</span>
+                      <span className="text-rose-600 font-semibold truncate">−{partnerWalletStats.monthExpense.toLocaleString('ru-RU')}</span>
+                    </div>
+                  </div>
+
+                  {/* 3. Семейный резерв (Общий котел как подушка/копилка) */}
                   <div
                     onClick={() => setActiveWalletCard('shared')}
                     role="button"
@@ -5353,10 +5990,10 @@
                     <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
                       <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
                         <span>👥</span>
-                        <span className="truncate">Общий котел</span>
+                        <span className="truncate">Семейный резерв</span>
                       </span>
                       <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                        Семья
+                        Копилка
                       </span>
                     </div>
 
@@ -5369,7 +6006,7 @@
                       <div className={`text-xs mt-1.5 truncate ${
                         stats.shared.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
                       }`}>
-                        {stats.shared.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
+                        {stats.shared.balance < 0 ? '⚠️ Дефицит счета' : 'Подушка / Котел'}
                       </div>
                     </div>
 
@@ -5379,89 +6016,7 @@
                     </div>
                   </div>
 
-                  {/* 2. Личный: Муж */}
-                  <div
-                    onClick={() => setActiveWalletCard('husband')}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('husband'); }}
-                    className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
-                      activeWalletCard === 'husband'
-                        ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
-                        : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
-                    }`}
-                  >
-                    <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                      <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
-                        <span>🧔🏻‍♂️</span>
-                        <span className="truncate">Муж (Личный)</span>
-                      </span>
-                      <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                        Свой
-                      </span>
-                    </div>
-
-                    <div className="my-auto">
-                      <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
-                        stats.husbandPersonal.balance < 0 ? 'text-rose-600' : 'text-stone-900'
-                      }`}>
-                        {stats.husbandPersonal.balance.toLocaleString('ru-RU')} ₽
-                      </div>
-                      <div className={`text-xs mt-1.5 truncate ${
-                        stats.husbandPersonal.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
-                      }`}>
-                        {stats.husbandPersonal.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
-                      </div>
-                    </div>
-
-                    <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
-                      <span className="text-emerald-700 font-semibold truncate">+{stats.husbandPersonal.monthIncome.toLocaleString('ru-RU')}</span>
-                      <span className="text-rose-600 font-semibold truncate">−{stats.husbandPersonal.monthExpense.toLocaleString('ru-RU')}</span>
-                    </div>
-                  </div>
-
-                  {/* 3. Личный: Жена */}
-                  <div
-                    onClick={() => setActiveWalletCard('wife')}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('wife'); }}
-                    className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
-                      activeWalletCard === 'wife'
-                        ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
-                        : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
-                    }`}
-                  >
-                    <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                      <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
-                        <span>👩🏼</span>
-                        <span className="truncate">Жена (Личный)</span>
-                      </span>
-                      <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                        Свой
-                      </span>
-                    </div>
-
-                    <div className="my-auto">
-                      <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
-                        stats.wifePersonal.balance < 0 ? 'text-rose-600' : 'text-stone-900'
-                      }`}>
-                        {stats.wifePersonal.balance.toLocaleString('ru-RU')} ₽
-                      </div>
-                      <div className={`text-xs mt-1.5 truncate ${
-                        stats.wifePersonal.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
-                      }`}>
-                        {stats.wifePersonal.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
-                      </div>
-                    </div>
-
-                    <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
-                      <span className="text-emerald-700 font-semibold truncate">+{stats.wifePersonal.monthIncome.toLocaleString('ru-RU')}</span>
-                      <span className="text-rose-600 font-semibold truncate">−{stats.wifePersonal.monthExpense.toLocaleString('ru-RU')}</span>
-                    </div>
-                  </div>
-
-                  {/* 4. Безопасный лимит в день / Индикатор кассового разрыва (строго 2 строки в центре + футер = 160px) */}
+                  {/* 4. Безопасный лимит в день / Индикатор кассового разрыва */}
                   <div className={`h-[160px] text-white p-4 sm:p-5 rounded-2xl shadow-md flex flex-col justify-between ${
                     stats.hasCashGap
                       ? 'bg-gradient-to-br from-rose-900 to-stone-900'
@@ -5498,9 +6053,9 @@
                               ? 'Период завершен'
                               : activeWalletCard === 'shared'
                               ? `Общий • на ${stats.daysLeft} дн.`
-                              : activeWalletCard === 'husband'
-                              ? `Личный (Муж) • на ${stats.daysLeft} дн.`
-                              : `Личный (Жена) • на ${stats.daysLeft} дн.`}
+                              : activeWalletCard === myWalletKey
+                              ? `${myProfile.name} (Мой) • на ${stats.daysLeft} дн.`
+                              : `${partnerProfile.name} • на ${stats.daysLeft} дн.`}
                           </div>
                         </>
                       )}
@@ -5533,6 +6088,8 @@
                   burnDownData={burnDownData}
                   rule503020Data={rule503020Data}
                   dynamics6MonthsData={dynamics6MonthsData}
+                  partnerComparisonData={partnerComparisonData}
+                  userProfiles={userProfiles}
                   daysInMonth={stats.daysInMonth}
                 />
 
@@ -5544,7 +6101,7 @@
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 mb-3.5 border-b border-stone-100">
                         <div>
                           <h2 className="text-sm font-semibold text-stone-900">
-                            Структура расходов ({activeWalletCard === 'shared' ? 'Общий котел 👥' : activeWalletCard === 'husband' ? 'Личный: Муж 🧔🏻‍♂️' : 'Личный: Жена 👩🏼'})
+                            Структура расходов ({activeWalletCard === 'shared' ? 'Семейный резерв 👥' : activeWalletCard === myWalletKey ? `${myProfile.name} ${myProfile.emoji}` : `${partnerProfile.name} ${partnerProfile.emoji}`})
                           </h2>
                           <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
                             Потребительские траты: <strong className="text-stone-800">{stats.totalSelectedExpense.toLocaleString('ru-RU')} ₽</strong>
@@ -5874,8 +6431,8 @@
                         <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
                           {[
                             { id: 'all', label: 'Все' },
-                            { id: 'husband', label: '🧔🏻‍♂️ Муж' },
-                            { id: 'wife', label: '👩🏼 Жена' },
+                            { id: 'husband', label: `${userProfiles.husband?.emoji || '🧔🏻‍♂️'} ${userProfiles.husband?.name || 'Партнер 1'}` },
+                            { id: 'wife', label: `${userProfiles.wife?.emoji || '👩🏼'} ${userProfiles.wife?.name || 'Партнер 2'}` },
                           ].map(opt => (
                             <button
                               key={opt.id}
@@ -6527,7 +7084,9 @@
                         const now = new Date();
                         const offsetMonths = Math.max(0, monthsLeft - (isPaidThisMonth ? 0 : 1));
                         const closeDate = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
-                        const forecastText = monthsLeft > 0
+                        const forecastText = debt.isRegular === false && monthly <= 0
+                          ? 'По мере возможности'
+                          : monthsLeft > 0
                           ? `${monthsLeft} пл. (${MONTH_NAMES_NOMINATIVE[closeDate.getMonth()]} ${closeDate.getFullYear()})`
                           : 'Полностью закрыт! 🎉';
 
@@ -6545,7 +7104,9 @@
                                   <div className="min-w-0">
                                     <h3 className="font-semibold text-stone-900 text-sm leading-tight truncate">{debt.title}</h3>
                                     <span className="text-xs text-stone-500 tabular-nums">
-                                      Платёж: {monthly.toLocaleString('ru-RU')} ₽ до {debt.paymentDay}-го числа
+                                      {debt.isRegular === false
+                                        ? 'Гибкий долг / свободное погашение'
+                                        : `Платёж: ${monthly.toLocaleString('ru-RU')} ₽ до ${debt.paymentDay}-го числа`}
                                     </span>
                                   </div>
                                 </div>
@@ -6603,8 +7164,8 @@
                               </div>
 
                               <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-stone-200/70">
-                                <span className={`text-xs font-medium ${isPaidThisMonth ? 'text-emerald-700' : 'text-amber-800'}`}>
-                                  {isPaidThisMonth ? '✓ Платёж за месяц внесен' : 'Платёж за месяц ожидает'}
+                                <span className={`text-xs font-medium ${isPaidThisMonth ? 'text-emerald-700' : (debt.isRegular === false ? 'text-stone-500' : 'text-amber-800')}`}>
+                                  {isPaidThisMonth ? '✓ Платёж за месяц внесен' : (debt.isRegular === false ? 'Свободный график' : 'Платёж за месяц ожидает')}
                                 </span>
                                 <button
                                   type="button"
@@ -6823,12 +7384,15 @@
             setNewDebtDay={setNewDebtDay}
             newDebtIcon={newDebtIcon}
             setNewDebtIcon={setNewDebtIcon}
+            newDebtIsRegular={newDebtIsRegular}
+            setNewDebtIsRegular={setNewDebtIsRegular}
             onSubmit={handleCreateDebt}
           />
 
           <PayDebtModal
             isOpen={isPayDebtModalOpen}
             onClose={() => setIsPayDebtModalOpen(false)}
+            activeDebt={debts.find(d => d.id === selectedDebtId)}
             debtSourceAccount={debtSourceAccount}
             setDebtSourceAccount={setDebtSourceAccount}
             debtSourceAuthor={debtSourceAuthor}
@@ -6837,7 +7401,21 @@
             setDebtPayAmount={setDebtPayAmount}
             debtPayDate={debtPayDate}
             setDebtPayDate={setDebtPayDate}
+            userProfiles={userProfiles}
             onSubmit={handlePayDebtSubmit}
+          />
+
+          <ProfileEditModal
+            isOpen={isProfileModalOpen}
+            onClose={() => setIsProfileModalOpen(false)}
+            userProfiles={userProfiles}
+            onSaveProfiles={setUserProfiles}
+            deviceOwner={deviceOwner}
+            onSaveDeviceOwner={(owner) => {
+              setDeviceOwner(owner);
+              setCurrentUser(owner);
+              setActiveWalletCard(owner);
+            }}
           />
 
           <ExportBackupModal
