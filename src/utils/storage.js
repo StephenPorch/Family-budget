@@ -2,7 +2,10 @@
 export const loadFromStorage = (key, fallback) => {
   try {
     const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback;
+    if (!saved || saved === 'undefined' || saved === 'null') return fallback;
+    const parsed = JSON.parse(saved);
+    if (parsed === null || parsed === undefined) return fallback;
+    return parsed;
   } catch (err) {
     console.error(`Failed to load ${key} from localStorage:`, err);
     return fallback;

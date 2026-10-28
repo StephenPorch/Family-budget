@@ -57,24 +57,39 @@ import {
 
 export default function FamilyBudgetApp() {
   // Профили пользователей и владелец устройства (Personal-First)
-  const [userProfiles, setUserProfiles] = useState(() =>
-    loadFromStorage('family_budget_profiles', INITIAL_USER_PROFILES)
-  );
-  const [deviceOwner, setDeviceOwner] = useState(() =>
-    loadFromStorage('family_budget_device_owner', 'husband')
-  );
-  const [currentUser, setCurrentUser] = useState(() =>
-    loadFromStorage('family_budget_device_owner', 'husband')
-  );
+  const [userProfiles, setUserProfiles] = useState(() => {
+    const loaded = loadFromStorage('family_budget_profiles', INITIAL_USER_PROFILES);
+    if (loaded && typeof loaded === 'object' && loaded.husband && loaded.wife) {
+      return loaded;
+    }
+    return INITIAL_USER_PROFILES;
+  });
+  const [deviceOwner, setDeviceOwner] = useState(() => {
+    const loaded = loadFromStorage('family_budget_device_owner', 'husband');
+    return (loaded === 'wife' || loaded === 'husband') ? loaded : 'husband';
+  });
+  const [currentUser, setCurrentUser] = useState(() => {
+    const loaded = loadFromStorage('family_budget_device_owner', 'husband');
+    return (loaded === 'wife' || loaded === 'husband') ? loaded : 'husband';
+  });
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'history' | 'goals' | 'debts'
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthPrefix); // 'YYYY-MM' | 'all'
 
   // Фокус кошелька в дашборде: по умолчанию личный счет владельца устройства
-  const [activeWalletCard, setActiveWalletCard] = useState(() =>
-    loadFromStorage('family_budget_device_owner', 'husband')
-  );
+  const [activeWalletCard, setActiveWalletCard] = useState(() => {
+    const loaded = loadFromStorage('family_budget_device_owner', 'husband');
+    return (loaded === 'wife' || loaded === 'husband') ? loaded : 'husband';
+  });
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Гарантированно безопасные профили (защита от null/undefined)
+  const safeProfiles = useMemo(() => {
+    if (userProfiles && typeof userProfiles === 'object' && userProfiles.husband && userProfiles.wife) {
+      return userProfiles;
+    }
+    return INITIAL_USER_PROFILES;
+  }, [userProfiles]);
 
   // Вид аналитических графиков на вкладке «Обзор»: 'burndown' | 'rule503020' | 'dynamics'
   const [chartView, setChartView] = useState('burndown');
@@ -349,8 +364,8 @@ export default function FamilyBudgetApp() {
 
   // Сравнительный баланс партнеров за выбранный месяц
   const partnerComparisonData = useMemo(() => {
-    return calculatePartnerComparison(transactions, userProfiles, selectedMonth);
-  }, [transactions, userProfiles, selectedMonth]);
+    return calculatePartnerComparison(transactions, safeProfiles, selectedMonth);
+  }, [transactions, safeProfiles, selectedMonth]);
 
   // ================= АНАЛИЗ ПРОШЛЫХ МЕСЯЦЕВ И ПРОГНОЗ РАСХОДОВ =================
   const expenseForecastData = useMemo(() => {
@@ -1484,7 +1499,7 @@ export default function FamilyBudgetApp() {
 
     const summaryRows = [
       ['Показатель', 'Значение (₽ / %)', 'Период / Комментарий'],
-      ['Версия приложения', 'v0.7.5', `Дата выгрузки: ${getLocalDateString()}`],
+      ['Версия приложения', 'v0.7.6', `Дата выгрузки: ${getLocalDateString()}`],
       ['Выбранный период', formatMonthTitle(selectedMonth), targetYm],
       ['Кумулятивный баланс: Общий котел', stats.shared.balance, `Доходы мес: +${stats.shared.monthIncome} / Расходы мес: -${stats.shared.monthExpense}`],
       ['Кумулятивный баланс: Личный (Муж)', stats.husbandPersonal.balance, `Доходы мес: +${stats.husbandPersonal.monthIncome} / Расходы мес: -${stats.husbandPersonal.monthExpense}`],
@@ -1596,7 +1611,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.5-${getLocalDateString()}.xlsx`;
+    a.download = `family-budget-v0.7.6-${getLocalDateString()}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1744,7 +1759,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.5-backup-${getLocalDateString()}.csv`;
+    a.download = `family-budget-v0.7.6-backup-${getLocalDateString()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1754,7 +1769,7 @@ export default function FamilyBudgetApp() {
 
   const handleDownloadJson = () => {
     const payload = {
-      version: '0.7.5',
+      version: '0.7.6',
       exportedAt: new Date().toISOString(),
       transactions,
       goals,
@@ -1769,7 +1784,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.5-backup-${getLocalDateString()}.json`;
+    a.download = `family-budget-v0.7.6-backup-${getLocalDateString()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2129,7 +2144,7 @@ export default function FamilyBudgetApp() {
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
-    showToast('Демонстрационные данные v0.7.5 восстановлены');
+    showToast('Демонстрационные данные v0.7.6 восстановлены');
   };
 
   // Фильтрация истории операций
@@ -2448,8 +2463,8 @@ export default function FamilyBudgetApp() {
               <span className="truncate font-medium text-stone-600">{catObj.name}</span>
               <span className="text-stone-300">•</span>
               <span className="inline-flex items-center gap-1 text-stone-600 shrink-0">
-                <span>{tx.author === 'husband' ? (userProfiles.husband?.emoji || '🧔🏻‍♂️') : (userProfiles.wife?.emoji || '👩🏼')}</span>
-                <span>{isShared ? 'Общий котел' : (tx.author === 'husband' ? (userProfiles.husband?.name || 'Личный') : (userProfiles.wife?.name || 'Личный'))}</span>
+                <span>{tx.author === 'husband' ? (safeProfiles.husband?.emoji || '🧔🏻‍♂️') : (safeProfiles.wife?.emoji || '👩🏼')}</span>
+                <span>{isShared ? 'Общий котел' : (tx.author === 'husband' ? (safeProfiles.husband?.name || 'Личный') : (safeProfiles.wife?.name || 'Личный'))}</span>
               </span>
               <span className="text-stone-300">•</span>
               <span className="text-stone-500 font-mono text-[11px] tabular-nums shrink-0">{tx.date}</span>
@@ -2477,8 +2492,8 @@ export default function FamilyBudgetApp() {
 
   const myWalletKey = deviceOwner === 'wife' ? 'wife' : 'husband';
   const partnerWalletKey = deviceOwner === 'wife' ? 'husband' : 'wife';
-  const myProfile = userProfiles[myWalletKey] || { name: 'Я', emoji: '👤' };
-  const partnerProfile = userProfiles[partnerWalletKey] || { name: 'Партнер', emoji: '👥' };
+  const myProfile = safeProfiles[myWalletKey] || { name: 'Я', emoji: '👤' };
+  const partnerProfile = safeProfiles[partnerWalletKey] || { name: 'Партнер', emoji: '👥' };
   const myWalletStats = myWalletKey === 'wife' ? stats.wifePersonal : stats.husbandPersonal;
   const partnerWalletStats = partnerWalletKey === 'wife' ? stats.wifePersonal : stats.husbandPersonal;
 
@@ -2498,7 +2513,7 @@ export default function FamilyBudgetApp() {
                   Семейный Бюджет
                 </h1>
                 <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
-                  v0.7.5
+                  v0.7.6
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
@@ -2591,10 +2606,10 @@ export default function FamilyBudgetApp() {
                     ? 'bg-white text-stone-900 shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
-                title={`Активный пользователь: ${userProfiles.husband?.name || 'Партнер 1'}`}
+                title={`Активный пользователь: ${safeProfiles.husband?.name || 'Партнер 1'}`}
               >
-                <span>{userProfiles.husband?.emoji || '🧔🏻‍♂️'}</span>
-                <span className="hidden sm:inline max-w-[85px] truncate">{userProfiles.husband?.name || 'Партнер 1'}</span>
+                <span>{safeProfiles.husband?.emoji || '🧔🏻‍♂️'}</span>
+                <span className="hidden sm:inline max-w-[85px] truncate">{safeProfiles.husband?.name || 'Партнер 1'}</span>
                 {deviceOwner === 'husband' && (
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" title="Владелец этого устройства" />
                 )}
@@ -2610,10 +2625,10 @@ export default function FamilyBudgetApp() {
                     ? 'bg-white text-stone-900 shadow-sm'
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
-                title={`Активный пользователь: ${userProfiles.wife?.name || 'Партнер 2'}`}
+                title={`Активный пользователь: ${safeProfiles.wife?.name || 'Партнер 2'}`}
               >
-                <span>{userProfiles.wife?.emoji || '👩🏼'}</span>
-                <span className="hidden sm:inline max-w-[85px] truncate">{userProfiles.wife?.name || 'Партнер 2'}</span>
+                <span>{safeProfiles.wife?.emoji || '👩🏼'}</span>
+                <span className="hidden sm:inline max-w-[85px] truncate">{safeProfiles.wife?.name || 'Партнер 2'}</span>
                 {deviceOwner === 'wife' && (
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="Владелец этого устройства" />
                 )}
@@ -2896,7 +2911,7 @@ export default function FamilyBudgetApp() {
               rule503020Data={rule503020Data}
               dynamics6MonthsData={dynamics6MonthsData}
               partnerComparisonData={partnerComparisonData}
-              userProfiles={userProfiles}
+              userProfiles={safeProfiles}
               daysInMonth={stats.daysInMonth}
             />
 
@@ -3238,8 +3253,8 @@ export default function FamilyBudgetApp() {
                     <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
                       {[
                         { id: 'all', label: 'Все' },
-                        { id: 'husband', label: `${userProfiles.husband?.emoji || '🧔🏻‍♂️'} ${userProfiles.husband?.name || 'Партнер 1'}` },
-                        { id: 'wife', label: `${userProfiles.wife?.emoji || '👩🏼'} ${userProfiles.wife?.name || 'Партнер 2'}` },
+                        { id: 'husband', label: `${safeProfiles.husband?.emoji || '🧔🏻‍♂️'} ${safeProfiles.husband?.name || 'Партнер 1'}` },
+                        { id: 'wife', label: `${safeProfiles.wife?.emoji || '👩🏼'} ${safeProfiles.wife?.name || 'Партнер 2'}` },
                       ].map(opt => (
                         <button
                           key={opt.id}
@@ -4208,14 +4223,14 @@ export default function FamilyBudgetApp() {
         setDebtPayAmount={setDebtPayAmount}
         debtPayDate={debtPayDate}
         setDebtPayDate={setDebtPayDate}
-        userProfiles={userProfiles}
+        userProfiles={safeProfiles}
         onSubmit={handlePayDebtSubmit}
       />
 
       <ProfileEditModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
-        userProfiles={userProfiles}
+        userProfiles={safeProfiles}
         onSaveProfiles={setUserProfiles}
         deviceOwner={deviceOwner}
         onSaveDeviceOwner={(owner) => {

@@ -109,8 +109,9 @@ export const calculateDebtPayoff = (debt) => {
 
 // Сравнительный баланс и эффективность двух партнеров за месяц
 export const calculatePartnerComparison = (transactions = [], userProfiles = {}, targetYm = getCurrentMonthPrefix()) => {
-  const p1 = userProfiles.husband || { name: 'Партнер 1', emoji: '🧔🏻‍♂️' };
-  const p2 = userProfiles.wife || { name: 'Партнер 2', emoji: '👩🏼' };
+  const profiles = (userProfiles && typeof userProfiles === 'object') ? userProfiles : {};
+  const p1 = profiles.husband || { name: 'Партнер 1', emoji: '🧔🏻‍♂️' };
+  const p2 = profiles.wife || { name: 'Партнер 2', emoji: '👩🏼' };
 
   let p1Income = 0;
   let p1PersonalExpense = 0;
