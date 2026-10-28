@@ -1499,7 +1499,7 @@ export default function FamilyBudgetApp() {
 
     const summaryRows = [
       ['Показатель', 'Значение (₽ / %)', 'Период / Комментарий'],
-      ['Версия приложения', 'v0.7.6', `Дата выгрузки: ${getLocalDateString()}`],
+      ['Версия приложения', 'v0.7.7', `Дата выгрузки: ${getLocalDateString()}`],
       ['Выбранный период', formatMonthTitle(selectedMonth), targetYm],
       ['Кумулятивный баланс: Общий котел', stats.shared.balance, `Доходы мес: +${stats.shared.monthIncome} / Расходы мес: -${stats.shared.monthExpense}`],
       ['Кумулятивный баланс: Личный (Муж)', stats.husbandPersonal.balance, `Доходы мес: +${stats.husbandPersonal.monthIncome} / Расходы мес: -${stats.husbandPersonal.monthExpense}`],
@@ -1611,7 +1611,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.6-${getLocalDateString()}.xlsx`;
+    a.download = `family-budget-v0.7.7-${getLocalDateString()}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1759,7 +1759,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.6-backup-${getLocalDateString()}.csv`;
+    a.download = `family-budget-v0.7.7-backup-${getLocalDateString()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1784,7 +1784,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.6-backup-${getLocalDateString()}.json`;
+    a.download = `family-budget-v0.7.7-backup-${getLocalDateString()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2144,7 +2144,7 @@ export default function FamilyBudgetApp() {
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
-    showToast('Демонстрационные данные v0.7.6 восстановлены');
+    showToast('Демонстрационные данные v0.7.7 восстановлены');
   };
 
   // Фильтрация истории операций
@@ -2513,7 +2513,7 @@ export default function FamilyBudgetApp() {
                   Семейный Бюджет
                 </h1>
                 <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
-                  v0.7.6
+                  v0.7.7
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
