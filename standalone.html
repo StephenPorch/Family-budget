@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный Бюджет v0.7.7 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.7.7.1 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -4713,7 +4713,7 @@
 
         const summaryRows = [
           ['Показатель', 'Значение (₽ / %)', 'Период / Комментарий'],
-          ['Версия приложения', 'v0.7.7', `Дата выгрузки: ${getLocalDateString()}`],
+          ['Версия приложения', 'v0.7.7.1', `Дата выгрузки: ${getLocalDateString()}`],
           ['Выбранный период', formatMonthTitle(selectedMonth), targetYm],
           ['Кумулятивный баланс: Общий котел', stats.shared.balance, `Доходы мес: +${stats.shared.monthIncome} / Расходы мес: -${stats.shared.monthExpense}`],
           ['Кумулятивный баланс: Личный (Муж)', stats.husbandPersonal.balance, `Доходы мес: +${stats.husbandPersonal.monthIncome} / Расходы мес: -${stats.husbandPersonal.monthExpense}`],
@@ -4825,7 +4825,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `family-budget-v0.7.7-${getLocalDateString()}.xlsx`;
+        a.download = `family-budget-v0.7.7.1-${getLocalDateString()}.xlsx`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -4973,7 +4973,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `family-budget-v0.7.7-backup-${getLocalDateString()}.csv`;
+        a.download = `family-budget-v0.7.7.1-backup-${getLocalDateString()}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -4998,7 +4998,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `family-budget-v0.7.7-backup-${getLocalDateString()}.json`;
+        a.download = `family-budget-v0.7.7.1-backup-${getLocalDateString()}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -5358,7 +5358,7 @@
         setCustomCategories([]);
         setPlannedCategoryLimits({});
         setIsExportModalOpen(false);
-        showToast('Демонстрационные данные v0.7.7 восстановлены');
+        showToast('Демонстрационные данные v0.7.7.1 восстановлены');
       };
 
       // Фильтрация истории операций
@@ -5715,19 +5715,19 @@
         <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-24 md:pb-12">
           {/* Верхний бар управления — все контролы выровнены по единой высоте h-10 (40px) */}
           <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-stone-200/80">
-            <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-3">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-3">
               {/* Левый блок: Бренд + фиксированный капсульный селектор периода */}
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
                 <div className="w-10 h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm text-base shrink-0">
                   💎
                 </div>
-                <div className="hidden sm:block min-w-0">
+                <div className="hidden sm:block lg:hidden 2xl:block min-w-0">
                   <div className="flex items-center gap-1.5">
                     <h1 className="text-sm font-bold tracking-tight text-stone-900 truncate">
                       Семейный Бюджет
                     </h1>
                     <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
-                      v0.7.7
+                      v0.7.7.1
                     </span>
                   </div>
                   <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
@@ -5782,7 +5782,7 @@
                       key={tab.id}
                       type="button"
                       onClick={() => setActiveTab(tab.id)}
-                      className={`h-8 px-3 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`h-8 px-2.5 xl:px-3 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
                         isActive
                           ? 'bg-white text-stone-900 shadow-sm'
                           : 'text-stone-600 hover:text-stone-900'
@@ -5806,7 +5806,7 @@
                 })}
               </nav>
 
-              {/* Правый блок: переключатель профилей и настройки */}
+              {/* Правый блок: переключатель профилей и действия */}
               <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-10">
                   <button
@@ -5862,27 +5862,28 @@
                   type="button"
                   onClick={() => setIsExportModalOpen(true)}
                   aria-label="Экспорт в Excel, CSV и резервная копия"
-                  className="h-10 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition border border-stone-200/80 flex items-center gap-1.5 shrink-0"
+                  className="h-10 px-2.5 sm:px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition border border-stone-200/80 flex items-center gap-1.5 shrink-0"
                   title="Экспорт в XLSX / CSV / AI и резервная копия"
                 >
                   <FileSpreadsheet className="w-4 h-4 text-emerald-700 shrink-0" />
-                  <span className="hidden sm:inline">Бэкап / XLSX</span>
+                  <span className="hidden sm:inline lg:hidden 2xl:inline">Бэкап / XLSX</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => openNewTransactionModal()}
-                  className="hidden sm:flex h-10 px-3.5 rounded-xl bg-stone-900 text-white hover:bg-stone-800 text-xs font-semibold transition shadow-sm items-center gap-1.5 shrink-0"
+                  aria-label="Записать операцию"
+                  title="Записать новую операцию"
+                  className="w-10 h-10 rounded-xl bg-stone-900 text-white hover:bg-stone-800 transition shadow-sm flex items-center justify-center shrink-0"
                 >
-                  <Plus className="w-4 h-4 shrink-0" />
-                  <span>Записать</span>
+                  <Plus className="w-5 h-5 shrink-0" />
                 </button>
               </div>
             </div>
           </header>
 
           {/* Основной контент по вкладкам */}
-          <main className="max-w-5xl mx-auto px-4 sm:px-6 py-5">
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
             {/* ================= ВКЛАДКА 1: ОБЗОР (ДАШБОРД) ================= */}
             {activeTab === 'dashboard' && (
               <div className="space-y-5 animate-fade-in">

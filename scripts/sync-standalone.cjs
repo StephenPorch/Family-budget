@@ -77,7 +77,7 @@ const standaloneHeader = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный Бюджет v0.7.7 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.7.7.1 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -155,4 +155,4 @@ const bundledStandaloneBody = processedModulesForStandalone
 
 const finalStandalone = `${standaloneHeader}\n${bundledStandaloneBody}\n${standaloneFooter}`;
 fs.writeFileSync(standalonePath, finalStandalone, 'utf8');
-console.log('standalone.html v0.7.7 generated successfully! Length:', finalStandalone.length);
+console.log('standalone.html v0.7.7.1 generated successfully! Length:', finalStandalone.length);
