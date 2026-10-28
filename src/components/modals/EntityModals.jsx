@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { GOAL_COLOR_PRESETS, QUICK_GOAL_ICONS, DEFAULT_EXPENSE_CATEGORIES } from '../../utils/storage.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { useBackdropDismiss } from '../../hooks/useBackdropDismiss.js';
+import { calculateHorizonDays } from '../../utils/financeCore.js';
 
 export const GoalActionModal = React.memo(function GoalActionModal({
   isOpen,
@@ -1078,6 +1079,267 @@ export const ProfileEditModal = React.memo(function ProfileEditModal({
             className="w-full h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition flex items-center justify-center"
           >
             Сохранить настройки
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+});
+
+export const SafeLimitConfigModal = React.memo(function SafeLimitConfigModal({
+  isOpen,
+  onClose,
+  config,
+  onSaveConfig,
+  currentSafeBalance = 0,
+}) {
+  const modalRef = useRef(null);
+  useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
+
+  const [mode, setMode] = useState(config?.mode || 'paydays');
+  const [day1, setDay1] = useState(config?.paydays?.[0] ?? 10);
+  const [day2, setDay2] = useState(config?.paydays?.[1] ?? 25);
+  const [fixedDays, setFixedDays] = useState(config?.fixedDays || 14);
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode(config?.mode || 'paydays');
+      setDay1(config?.paydays?.[0] ?? 10);
+      setDay2(config?.paydays?.[1] ?? 25);
+      setFixedDays(config?.fixedDays || 14);
+    }
+  }, [isOpen, config]);
+
+  if (!isOpen) return null;
+
+  const paydaysArray = [];
+  if (day1 && Number(day1) >= 1 && Number(day1) <= 31) paydaysArray.push(Number(day1));
+  if (day2 && Number(day2) >= 1 && Number(day2) <= 31 && Number(day2) !== Number(day1)) paydaysArray.push(Number(day2));
+  if (paydaysArray.length === 0) paydaysArray.push(10, 25);
+
+  const draftConfig = {
+    mode,
+    paydays: paydaysArray,
+    fixedDays: Math.max(1, Math.min(365, Number(fixedDays) || 14)),
+  };
+
+  const horizon = calculateHorizonDays(draftConfig, new Date());
+  const dailyPreview = Math.max(0, Math.round(currentSafeBalance / horizon.days));
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSaveConfig(draftConfig);
+    onClose();
+  };
+
+  const applyPaydayPreset = (d1, d2) => {
+    setDay1(d1);
+    setDay2(d2);
+  };
+
+  return (
+    <div
+      {...backdropDismiss}
+      className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="safe-limit-modal-title"
+    >
+      <div ref={modalRef} className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-stone-200 max-h-[92vh] overflow-y-auto space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center text-base">
+              ⚡
+            </span>
+            <div>
+              <span id="safe-limit-modal-title" className="font-semibold text-stone-900 text-sm block">
+                Горизонт безопасного лимита
+              </span>
+              <span className="text-[11px] text-stone-500">
+                На какой срок делить свободные деньги
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть модальное окно"
+            className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+          {/* Режимы горизонта */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-100 rounded-xl border border-stone-200/80">
+            <button
+              type="button"
+              onClick={() => setMode('paydays')}
+              className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition ${
+                mode === 'paydays' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              📅 До ЗП / аванса
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('month')}
+              className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition ${
+                mode === 'month' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              🗓️ Конец месяца
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('days')}
+              className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition ${
+                mode === 'days' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              ⏳ Срок в днях
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('end_of_year')}
+              className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition ${
+                mode === 'end_of_year' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              🎯 До конца года
+            </button>
+          </div>
+
+          {/* Параметры режима: Дни зарплаты */}
+          {mode === 'paydays' && (
+            <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-3">
+              <div className="text-xs font-bold text-stone-900">
+                Числа месяца для выплат (получка / аванс):
+              </div>
+              <p className="text-[11px] text-stone-500 leading-relaxed">
+                Укажите, в какие числа приходят деньги. Приложение автоматически рассчитает дни до ближайшего пополнения.
+              </p>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-medium text-stone-600 block mb-1">
+                    1-я выплата (число)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    required
+                    value={day1}
+                    onChange={(e) => setDay1(e.target.value)}
+                    className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-stone-600 block mb-1">
+                    2-я выплата (число)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={day2}
+                    onChange={(e) => setDay2(e.target.value)}
+                    placeholder="Необязательно"
+                    className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                  />
+                </div>
+              </div>
+
+              {/* Пресеты */}
+              <div className="flex gap-1.5 flex-wrap pt-1">
+                {[
+                  { label: '10 и 25', d1: 10, d2: 25 },
+                  { label: '5 и 20', d1: 5, d2: 20 },
+                  { label: '1 и 15', d1: 1, d2: 15 },
+                  { label: 'Только 10-е', d1: 10, d2: '' },
+                ].map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => applyPaydayPreset(p.d1, p.d2)}
+                    className="px-2 py-1 rounded-md text-[11px] font-medium bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 transition"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Параметры режима: Срок в днях */}
+          {mode === 'days' && (
+            <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-3">
+              <label className="text-xs font-bold text-stone-900 block">
+                Количество дней для распределения:
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                required
+                value={fixedDays}
+                onChange={(e) => setFixedDays(e.target.value)}
+                className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+              />
+              <div className="flex gap-1.5 flex-wrap">
+                {[7, 14, 30, 60, 90].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setFixedDays(d)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition ${
+                      Number(fixedDays) === d
+                        ? 'bg-stone-900 text-white border-stone-900'
+                        : 'bg-white border-stone-200 hover:bg-stone-100 text-stone-700'
+                    }`}
+                  >
+                    {d} дней
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Режим: До конца месяца */}
+          {mode === 'month' && (
+            <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 text-[11px] text-stone-600 leading-relaxed">
+              Классический режим: свободные средства делятся на дни, оставшиеся до последнего числа текущего календарного месяца.
+            </div>
+          )}
+
+          {/* Режим: До конца года */}
+          {mode === 'end_of_year' && (
+            <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 text-[11px] text-stone-600 leading-relaxed">
+              Годовой горизонт: расчет дневного лимита до 31 декабря текущего года. Подходит для оценки долгосрочного темпа жизни.
+            </div>
+          )}
+
+          {/* Блок живого предпросмотра */}
+          <div className="p-3.5 bg-amber-50/80 rounded-xl border border-amber-200/80 space-y-1.5">
+            <div className="text-[11px] font-bold text-amber-900 flex items-center justify-between">
+              <span>Итоговый горизонт:</span>
+              <span className="text-amber-800 text-xs">{horizon.days} дн. ({horizon.label})</span>
+            </div>
+            <div className="text-[11px] text-amber-800/90 flex items-center justify-between">
+              <span>Дневной лимит при остатке:</span>
+              <span className="font-bold text-amber-950 text-sm tabular-nums">
+                {dailyPreview.toLocaleString('ru-RU')} ₽/день
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="w-full h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition flex items-center justify-center shadow-sm"
+          >
+            Сохранить горизонт
           </button>
         </form>
       </div>

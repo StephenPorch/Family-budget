@@ -29,6 +29,7 @@ import {
   INITIAL_USER_PROFILES,
   DEFAULT_EXPENSE_CATEGORIES,
   GOAL_COLOR_PRESETS,
+  DEFAULT_SAFE_LIMIT_CONFIG,
 } from './utils/storage.js';
 
 import { buildXlsxBytes } from './utils/xlsx.js';
@@ -39,6 +40,7 @@ import {
   isTransactionTypeLocked,
   getRecurringReminderStatus,
   calculatePartnerComparison,
+  calculateHorizonDays,
 } from './utils/financeCore.js';
 
 import { ChartsSection } from './components/analytics/ChartsSection.jsx';
@@ -53,6 +55,7 @@ import {
   DebtFormModal,
   PayDebtModal,
   ProfileEditModal,
+  SafeLimitConfigModal,
 } from './components/modals/EntityModals.jsx';
 
 export default function FamilyBudgetApp() {
@@ -82,6 +85,10 @@ export default function FamilyBudgetApp() {
   });
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLimitModalOpen, setIsLimitModalOpen] = useState(false);
+  const [safeLimitConfig, setSafeLimitConfig] = useState(() =>
+    loadFromStorage('family_budget_limit_config', DEFAULT_SAFE_LIMIT_CONFIG)
+  );
 
   // Гарантированно безопасные профили (защита от null/undefined)
   const safeProfiles = useMemo(() => {
@@ -250,6 +257,7 @@ export default function FamilyBudgetApp() {
         setIsNewDebtModalOpen(false);
         setIsPayDebtModalOpen(false);
         setIsProfileModalOpen(false);
+        setIsLimitModalOpen(false);
         setIsExportModalOpen(false);
       }
     };
@@ -617,21 +625,28 @@ export default function FamilyBudgetApp() {
     const isPastMonth = selectedMonth !== 'all' && selectedMonth < currentYm;
     let daysLeft = 1;
     let daysInMonth = 30;
+    let daysHorizonLabel = 'до конца месяца';
 
     if (selectedMonth !== 'all') {
       const [y, m] = selectedMonth.split('-').map(Number);
       daysInMonth = new Date(y, m, 0).getDate();
       if (selectedMonth === currentYm) {
-        daysLeft = Math.max(1, daysInMonth - today.getDate() + 1);
+        const horizon = calculateHorizonDays(safeLimitConfig, today);
+        daysLeft = horizon.days;
+        daysHorizonLabel = horizon.label;
       } else if (isPastMonth) {
         daysLeft = 1;
+        daysHorizonLabel = 'период завершен';
       } else {
         daysLeft = daysInMonth;
+        daysHorizonLabel = `на ${daysInMonth} дн. месяца`;
       }
     } else {
       const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-      daysLeft = Math.max(1, dim - today.getDate() + 1);
       daysInMonth = dim;
+      const horizon = calculateHorizonDays(safeLimitConfig, today);
+      daysLeft = horizon.days;
+      daysHorizonLabel = horizon.label;
     }
 
     const activeBalance =
@@ -709,13 +724,14 @@ export default function FamilyBudgetApp() {
       activeSavedAndDebtPaid,
       daysLeft,
       daysInMonth,
+      daysHorizonLabel,
       isPastMonth,
       topCategories,
       totalSelectedExpense,
       unpaidMandatoryThisMonth,
       prevMonthShortName,
     };
-  }, [transactions, periodTransactions, previousMonthTransactions, goals, debts, selectedMonth, endOfSelectedMonth, activeWalletCard, customCategories, mandatoryReservesByWallet, unpaidMandatoryThisMonth]);
+  }, [transactions, periodTransactions, previousMonthTransactions, goals, debts, selectedMonth, endOfSelectedMonth, activeWalletCard, customCategories, mandatoryReservesByWallet, unpaidMandatoryThisMonth, safeLimitConfig]);
 
   // Открытие модалки создания новой операции
   const openNewTransactionModal = useCallback((presetAccount = null, presetAuthor = null, presetDate = null, batchMode = false) => {
@@ -1499,7 +1515,7 @@ export default function FamilyBudgetApp() {
 
     const summaryRows = [
       ['Показатель', 'Значение (₽ / %)', 'Период / Комментарий'],
-      ['Версия приложения', 'v0.7.7.1', `Дата выгрузки: ${getLocalDateString()}`],
+      ['Версия приложения', 'v0.7.8', `Дата выгрузки: ${getLocalDateString()}`],
       ['Выбранный период', formatMonthTitle(selectedMonth), targetYm],
       ['Кумулятивный баланс: Общий котел', stats.shared.balance, `Доходы мес: +${stats.shared.monthIncome} / Расходы мес: -${stats.shared.monthExpense}`],
       ['Кумулятивный баланс: Личный (Муж)', stats.husbandPersonal.balance, `Доходы мес: +${stats.husbandPersonal.monthIncome} / Расходы мес: -${stats.husbandPersonal.monthExpense}`],
@@ -1611,7 +1627,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.7.1-${getLocalDateString()}.xlsx`;
+    a.download = `family-budget-v0.7.8-${getLocalDateString()}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1759,7 +1775,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.7.1-backup-${getLocalDateString()}.csv`;
+    a.download = `family-budget-v0.7.8-backup-${getLocalDateString()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1784,7 +1800,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.7.1-backup-${getLocalDateString()}.json`;
+    a.download = `family-budget-v0.7.8-backup-${getLocalDateString()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2144,7 +2160,7 @@ export default function FamilyBudgetApp() {
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
-    showToast('Демонстрационные данные v0.7.7.1 восстановлены');
+    showToast('Демонстрационные данные v0.7.8 восстановлены');
   };
 
   // Фильтрация истории операций
@@ -2513,7 +2529,7 @@ export default function FamilyBudgetApp() {
                   Семейный Бюджет
                 </h1>
                 <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
-                  v0.7.7.1
+                  v0.7.8
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
@@ -2840,15 +2856,35 @@ export default function FamilyBudgetApp() {
               </div>
 
               {/* 4. Безопасный лимит в день / Индикатор кассового разрыва */}
-              <div className={`h-[160px] text-white p-4 sm:p-5 rounded-2xl shadow-md flex flex-col justify-between ${
-                stats.hasCashGap
-                  ? 'bg-gradient-to-br from-rose-900 to-stone-900'
-                  : 'bg-gradient-to-br from-stone-900 to-stone-800'
-              }`}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setIsLimitModalOpen(true)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsLimitModalOpen(true); }}
+                className={`h-[160px] text-white p-4 sm:p-5 rounded-2xl shadow-md flex flex-col justify-between cursor-pointer group transition-all hover:scale-[1.01] ${
+                  stats.hasCashGap
+                    ? 'bg-gradient-to-br from-rose-900 to-stone-900 hover:from-rose-800'
+                    : 'bg-gradient-to-br from-stone-900 to-stone-800 hover:from-stone-800'
+                }`}
+                title="Нажмите для настройки горизонта лимита и дней выплат ЗП"
+              >
                 <div className="h-6 flex items-center justify-between gap-1 text-stone-200">
-                  <span className="uppercase tracking-wider font-semibold text-xs truncate">
-                    {stats.hasCashGap ? 'Кассовый разрыв' : stats.isPastMonth ? 'Итог месяца' : 'Безопасный лимит'}
-                  </span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="uppercase tracking-wider font-semibold text-xs truncate">
+                      {stats.hasCashGap ? 'Кассовый разрыв' : stats.isPastMonth ? 'Итог месяца' : 'Безопасный лимит'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsLimitModalOpen(true);
+                      }}
+                      aria-label="Настроить горизонт лимита и дни зарплаты"
+                      className="w-5 h-5 rounded-md hover:bg-white/10 text-stone-400 group-hover:text-amber-300 flex items-center justify-center transition"
+                    >
+                      <SlidersHorizontal className="w-3 h-3" />
+                    </button>
+                  </div>
                   {stats.hasCashGap ? (
                     <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
                   ) : (
@@ -2875,10 +2911,10 @@ export default function FamilyBudgetApp() {
                         {stats.isPastMonth
                           ? 'Период завершен'
                           : activeWalletCard === 'shared'
-                          ? `Общий • на ${stats.daysLeft} дн.`
+                          ? `Общий • на ${stats.daysLeft} дн. (${stats.daysHorizonLabel})`
                           : activeWalletCard === myWalletKey
-                          ? `${myProfile.name} (Мой) • на ${stats.daysLeft} дн.`
-                          : `${partnerProfile.name} • на ${stats.daysLeft} дн.`}
+                          ? `${myProfile.name} (Мой) • на ${stats.daysLeft} дн. (${stats.daysHorizonLabel})`
+                          : `${partnerProfile.name} • на ${stats.daysLeft} дн. (${stats.daysHorizonLabel})`}
                       </div>
                     </>
                   )}
@@ -4239,6 +4275,18 @@ export default function FamilyBudgetApp() {
           setCurrentUser(owner);
           setActiveWalletCard(owner);
         }}
+      />
+
+      <SafeLimitConfigModal
+        isOpen={isLimitModalOpen}
+        onClose={() => setIsLimitModalOpen(false)}
+        config={safeLimitConfig}
+        onSaveConfig={(newConfig) => {
+          setSafeLimitConfig(newConfig);
+          saveToStorage('family_budget_limit_config', newConfig);
+          showToast('Горизонт безопасного лимита обновлен');
+        }}
+        currentSafeBalance={stats.safeBalance}
       />
 
       <ExportBackupModal

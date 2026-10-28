@@ -113,6 +113,12 @@ export const GOAL_COLOR_PRESETS = [
 
 export const QUICK_GOAL_ICONS = ['🎯', '🏔️', '🛡️', '🖥️', '🚗', '🏖️', '🏡', '💍', '👶', '🎓', '📱'];
 
+export const DEFAULT_SAFE_LIMIT_CONFIG = {
+  mode: 'paydays', // 'paydays' | 'month' | 'days' | 'end_of_year'
+  paydays: [10, 25],
+  fixedDays: 14,
+};
+
 export const CATEGORY_ALIASES = {
   'работа': { id: 'freelance', name: 'Подработка', icon: '💻', color: 'bg-blue-50 text-blue-700' },
   'дом': { id: 'home', name: 'Дом и ЖКУ', icon: '🏠', color: 'bg-blue-50 text-blue-700', bucket: 'base' },

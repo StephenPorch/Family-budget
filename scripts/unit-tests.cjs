@@ -20,11 +20,12 @@ async function runTests() {
     calculateDebtPayoff,
     calculateHistoricalForecast,
     calculatePartnerComparison,
+    calculateHorizonDays,
   } = await import(financeCoreUrl);
 
   const { parseCsvText } = await import(csvUrl);
 
-  console.log('🧪 Running Family Budget v0.7.7.1 Core Unit Tests (Direct ES Module Imports)...');
+  console.log('🧪 Running Family Budget v0.7.8 Core Unit Tests (Direct ES Module Imports)...');
 
   // Test 1: Safe Daily Budget & Cash Gap Exposure (v0.7.0 Fix)
   {
@@ -186,7 +187,34 @@ async function runTests() {
     console.log('  ✅ Test 7 PASSED: Flexible debt payoff & partner comparative balance analytics');
   }
 
-  console.log('🎉 All 7 test suites in unit-tests.cjs PASSED!');
+  // Test 8: Customizable Safe Limit Horizon (Paydays, Month, Fixed Days, End of Year)
+  {
+    const oct28 = new Date(2026, 9, 28);
+    const res1 = calculateHorizonDays({ mode: 'paydays', paydays: [10, 25] }, oct28);
+    assert.strictEqual(res1.days, 13);
+    assert.strictEqual(res1.label, 'до ЗП (10 нояб.)');
+
+    const oct5 = new Date(2026, 9, 5);
+    const res2 = calculateHorizonDays({ mode: 'paydays', paydays: [10, 25] }, oct5);
+    assert.strictEqual(res2.days, 5);
+    assert.strictEqual(res2.label, 'до ЗП (10 окт.)');
+
+    const oct10 = new Date(2026, 9, 10);
+    const res3 = calculateHorizonDays({ mode: 'paydays', paydays: [10, 25] }, oct10);
+    assert.strictEqual(res3.days, 15);
+    assert.strictEqual(res3.label, 'до ЗП (25 окт.)');
+
+    const res4 = calculateHorizonDays({ mode: 'days', fixedDays: 20 }, oct28);
+    assert.strictEqual(res4.days, 20);
+    assert.strictEqual(res4.label, 'на 20 дн.');
+
+    const res5 = calculateHorizonDays({ mode: 'end_of_year' }, new Date(2026, 11, 20));
+    assert.strictEqual(res5.days, 12);
+
+    console.log('  ✅ Test 8 PASSED: Customizable Safe Limit Horizon (Paydays, Month, Fixed Days, End of Year)');
+  }
+
+  console.log('🎉 All 8 test suites in unit-tests.cjs PASSED!');
 }
 
 runTests().catch((err) => {

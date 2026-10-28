@@ -1,4 +1,4 @@
-import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, CATEGORY_ALIASES } from './storage.js';
+import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, CATEGORY_ALIASES, DEFAULT_SAFE_LIMIT_CONFIG } from './storage.js';
 import { getCurrentMonthPrefix } from './dateUtils.js';
 
 export const getCategoryMeta = (categoryName, type, customCategories = []) => {
@@ -32,6 +32,92 @@ export const isTransactionTypeLocked = (tx) => {
 };
 
 export const isTransactionLockedType = isTransactionTypeLocked;
+
+// Расчет количества дней горизонта безопасного лимита (по умолчанию: до ближайшей выплаты ЗП/аванса)
+export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today = new Date()) => {
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const mode = config?.mode || 'paydays';
+
+  if (mode === 'paydays') {
+    const rawDays = Array.isArray(config?.paydays) ? config.paydays : [10, 25];
+    const cleanDays = Array.from(new Set(rawDays.map(Number).filter(d => d >= 1 && d <= 31))).sort((a, b) => a - b);
+    if (cleanDays.length === 0) {
+      cleanDays.push(10, 25);
+    }
+
+    const currentYear = current.getFullYear();
+    const currentMonth = current.getMonth();
+    const currentDay = current.getDate();
+
+    let targetDate = null;
+    for (const d of cleanDays) {
+      const daysInThisMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+      const validDay = Math.min(d, daysInThisMonth);
+      if (validDay > currentDay) {
+        targetDate = new Date(currentYear, currentMonth, validDay);
+        break;
+      }
+    }
+
+    if (!targetDate) {
+      const nextMonthYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+      const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
+      const daysInNextMonth = new Date(nextMonthYear, nextMonth + 1, 0).getDate();
+      const validDay = Math.min(cleanDays[0], daysInNextMonth);
+      targetDate = new Date(nextMonthYear, nextMonth, validDay);
+    }
+
+    const diffMs = targetDate.getTime() - current.getTime();
+    const diffDays = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+
+    const monthShort = ['янв.', 'февр.', 'марта', 'апр.', 'мая', 'июня', 'июля', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'][targetDate.getMonth()];
+    const label = `до ЗП (${targetDate.getDate()} ${monthShort})`;
+
+    return {
+      days: diffDays,
+      label,
+      targetDate,
+    };
+  }
+
+  if (mode === 'month') {
+    const dim = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+    const diffDays = Math.max(1, dim - current.getDate() + 1);
+    return {
+      days: diffDays,
+      label: 'до конца месяца',
+      targetDate: new Date(current.getFullYear(), current.getMonth(), dim),
+    };
+  }
+
+  if (mode === 'days') {
+    const d = Math.max(1, Math.min(365, Number(config?.fixedDays) || 14));
+    const target = new Date(current);
+    target.setDate(target.getDate() + d);
+    return {
+      days: d,
+      label: `на ${d} дн.`,
+      targetDate: target,
+    };
+  }
+
+  if (mode === 'end_of_year') {
+    const endOfYear = new Date(current.getFullYear(), 11, 31);
+    const diffMs = endOfYear.getTime() - current.getTime();
+    const diffDays = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+    return {
+      days: diffDays,
+      label: `до конца ${current.getFullYear()} г.`,
+      targetDate: endOfYear,
+    };
+  }
+
+  return {
+    days: 14,
+    label: 'на 14 дн.',
+    targetDate: null,
+  };
+};
 
 // Чистая функция расчета безопасного дневного лимита и кассового разрыва (v0.7.5)
 export const calculateSafeDailyBudget = ({
