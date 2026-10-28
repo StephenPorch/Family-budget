@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { FileSpreadsheet, Download, Copy, Upload, Trash2, X } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss.js';
 
 export const ExportBackupModal = React.memo(function ExportBackupModal({
   isOpen,
@@ -18,12 +19,13 @@ export const ExportBackupModal = React.memo(function ExportBackupModal({
   const modalRef = useRef(null);
   const fileInputRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
 
   if (!isOpen) return null;
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"

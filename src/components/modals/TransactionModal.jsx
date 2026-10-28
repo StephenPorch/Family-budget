@@ -3,6 +3,7 @@ import { Edit3, X, Lock, Calendar, Pin, Check } from 'lucide-react';
 import { getLocalDateString, getOffsetDateString } from '../../utils/dateUtils.js';
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from '../../utils/storage.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss.js';
 
 export const TransactionModal = React.memo(function TransactionModal({
   isOpen,
@@ -20,6 +21,7 @@ export const TransactionModal = React.memo(function TransactionModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
 
   const [amount, setAmount] = useState('');
   const [txTitle, setTxTitle] = useState('');
@@ -123,7 +125,7 @@ export const TransactionModal = React.memo(function TransactionModal({
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"

@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { GOAL_COLOR_PRESETS, QUICK_GOAL_ICONS, DEFAULT_EXPENSE_CATEGORIES } from '../../utils/storage.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss.js';
 
 export const GoalActionModal = React.memo(function GoalActionModal({
   isOpen,
@@ -22,11 +23,12 @@ export const GoalActionModal = React.memo(function GoalActionModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen) return null;
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
@@ -182,11 +184,12 @@ export const GoalFormModal = React.memo(function GoalFormModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen) return null;
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
@@ -319,11 +322,12 @@ export const RecurringFormModal = React.memo(function RecurringFormModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen) return null;
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
@@ -472,11 +476,12 @@ export const PayRecurringModal = React.memo(function PayRecurringModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen || !selectedRecurringToPay) return null;
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
@@ -560,11 +565,12 @@ export const DebtFormModal = React.memo(function DebtFormModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen) return null;
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
@@ -735,6 +741,7 @@ export const PayDebtModal = React.memo(function PayDebtModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen) return null;
 
   const p1 = userProfiles?.husband || { name: 'Муж', emoji: '🧔🏻‍♂️' };
@@ -743,7 +750,7 @@ export const PayDebtModal = React.memo(function PayDebtModal({
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
@@ -883,6 +890,7 @@ export const ProfileEditModal = React.memo(function ProfileEditModal({
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
+  const backdropDismiss = useBackdropDismiss(onClose);
 
   const [p1Name, setP1Name] = useState(userProfiles?.husband?.name || 'Партнер 1');
   const [p1Emoji, setP1Emoji] = useState(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
@@ -916,7 +924,7 @@ export const ProfileEditModal = React.memo(function ProfileEditModal({
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss}
       className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"

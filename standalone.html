@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный Бюджет v0.7.6 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.7.7 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -1483,12 +1483,13 @@
       const modalRef = useRef(null);
       const fileInputRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
 
       if (!isOpen) return null;
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -1689,6 +1690,7 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
 
       const [amount, setAmount] = useState('');
       const [txTitle, setTxTitle] = useState('');
@@ -1792,7 +1794,7 @@
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -2202,11 +2204,12 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
       if (!isOpen) return null;
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -2362,11 +2365,12 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
       if (!isOpen) return null;
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -2499,11 +2503,12 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
       if (!isOpen) return null;
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -2652,11 +2657,12 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
       if (!isOpen || !selectedRecurringToPay) return null;
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -2740,11 +2746,12 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
       if (!isOpen) return null;
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -2915,6 +2922,7 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
       if (!isOpen) return null;
 
       const p1 = userProfiles?.husband || { name: 'Муж', emoji: '🧔🏻‍♂️' };
@@ -2923,7 +2931,7 @@
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
@@ -3063,6 +3071,7 @@
     }) {
       const modalRef = useRef(null);
       useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
 
       const [p1Name, setP1Name] = useState(userProfiles?.husband?.name || 'Партнер 1');
       const [p1Emoji, setP1Emoji] = useState(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
@@ -3096,7 +3105,7 @@
 
       return (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          {...backdropDismiss}
           className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
