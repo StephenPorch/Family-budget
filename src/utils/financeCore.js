@@ -3,6 +3,16 @@ import { getCurrentMonthPrefix } from './dateUtils.js';
 
 export const getCategoryMeta = (categoryName, type, customCategories = []) => {
   const normName = (categoryName || '').trim().toLowerCase();
+  if (type === 'transfer' || normName === 'перевод между счетами' || normName === 'перевод') {
+    return {
+      id: 'transfer',
+      name: categoryName || 'Перевод между счетами',
+      icon: '⇄',
+      color: 'bg-indigo-50 text-indigo-700',
+      bucket: 'transfer',
+    };
+  }
+
   const all = [...DEFAULT_EXPENSE_CATEGORIES, ...DEFAULT_INCOME_CATEGORIES, ...customCategories];
   const found = all.find(c => c.name.toLowerCase() === normName);
   if (found) return found;
@@ -16,6 +26,58 @@ export const getCategoryMeta = (categoryName, type, customCategories = []) => {
   }
   const isBaseWord = normName.includes('продукт') || normName.includes('дом') || normName.includes('жку') || normName.includes('связ') || normName.includes('интернет') || normName.includes('транспорт') || normName.includes('здоров') || normName.includes('дет') || normName.includes('аптек');
   return { id: 'custom_exp', name: categoryName || 'Расход', icon: '📦', color: 'bg-stone-100 text-stone-700', bucket: isBaseWord ? 'base' : 'wants' };
+};
+
+// Определение ключа кошелька-источника операции ('shared' | 'husband' | 'wife')
+export const getWalletKeyFromTx = (tx) => {
+  if (!tx) return 'shared';
+  if (tx.fromWallet === 'shared' || tx.fromWallet === 'husband' || tx.fromWallet === 'wife') {
+    return tx.fromWallet;
+  }
+  if ((tx.account || 'shared') === 'shared') return 'shared';
+  return tx.author === 'wife' ? 'wife' : 'husband';
+};
+
+// Чистая функция расчета кумулятивных балансов 3 кошельков с учетом переводов (v0.8.0)
+export const calculateWalletBalancesWithTransfers = (transactions = [], endOfPeriod = '9999-12-31') => {
+  const wallets = {
+    shared: { income: 0, expense: 0, transferIn: 0, transferOut: 0, balance: 0 },
+    husband: { income: 0, expense: 0, transferIn: 0, transferOut: 0, balance: 0 },
+    wife: { income: 0, expense: 0, transferIn: 0, transferOut: 0, balance: 0 },
+  };
+
+  for (const t of transactions) {
+    const txDateStr = t.date || '';
+    if (txDateStr > endOfPeriod) continue;
+    const val = Math.max(0, Number(t.amount) || 0);
+    if (val === 0) continue;
+
+    if (t.type === 'transfer') {
+      const fromW = getWalletKeyFromTx(t);
+      const toW = (t.transferTo === 'shared' || t.transferTo === 'husband' || t.transferTo === 'wife')
+        ? t.transferTo
+        : (fromW === 'shared' ? 'husband' : 'shared');
+      if (fromW !== toW) {
+        wallets[fromW].transferOut += val;
+        wallets[toW].transferIn += val;
+      }
+      continue;
+    }
+
+    const walletKey = getWalletKeyFromTx(t);
+    if (t.type === 'income') {
+      wallets[walletKey].income += val;
+    } else {
+      wallets[walletKey].expense += val;
+    }
+  }
+
+  for (const k of ['shared', 'husband', 'wife']) {
+    const w = wallets[k];
+    w.balance = w.income + w.transferIn - w.expense - w.transferOut;
+  }
+
+  return wallets;
 };
 
 // Проверка: является ли операция накоплением или платежом по долгу
@@ -34,7 +96,7 @@ export const isTransactionTypeLocked = (tx) => {
 export const isTransactionLockedType = isTransactionTypeLocked;
 
 // Расчет количества дней горизонта безопасного лимита (по умолчанию: до ближайшей выплаты ЗП/аванса)
-export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today = new Date()) => {
+export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today = new Date(), options = {}) => {
   const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const mode = config?.mode || 'paydays';
 
@@ -48,10 +110,21 @@ export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today =
     const currentYear = current.getFullYear();
     const currentMonth = current.getMonth();
     const currentDay = current.getDate();
+    const daysInThisMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const isPaydayToday = cleanDays.some(d => Math.min(d, daysInThisMonth) === currentDay);
+
+    if (isPaydayToday && options?.waitForSalaryOnPayday && !options?.hasSalaryToday) {
+      const monthShortToday = ['янв.', 'февр.', 'марта', 'апр.', 'мая', 'июня', 'июля', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'][currentMonth];
+      return {
+        days: 1,
+        label: `сегодня день ЗП (${currentDay} ${monthShortToday})`,
+        targetDate: current,
+        isPaydayToday: true,
+      };
+    }
 
     let targetDate = null;
     for (const d of cleanDays) {
-      const daysInThisMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
       const validDay = Math.min(d, daysInThisMonth);
       if (validDay > currentDay) {
         targetDate = new Date(currentYear, currentMonth, validDay);
@@ -77,6 +150,7 @@ export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today =
       days: diffDays,
       label,
       targetDate,
+      isPaydayToday,
     };
   }
 
@@ -87,6 +161,7 @@ export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today =
       days: diffDays,
       label: 'до конца месяца',
       targetDate: new Date(current.getFullYear(), current.getMonth(), dim),
+      isPaydayToday: false,
     };
   }
 
@@ -98,6 +173,7 @@ export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today =
       days: d,
       label: `на ${d} дн.`,
       targetDate: target,
+      isPaydayToday: false,
     };
   }
 
@@ -109,6 +185,7 @@ export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today =
       days: diffDays,
       label: `до конца ${current.getFullYear()} г.`,
       targetDate: endOfYear,
+      isPaydayToday: false,
     };
   }
 
@@ -116,10 +193,11 @@ export const calculateHorizonDays = (config = DEFAULT_SAFE_LIMIT_CONFIG, today =
     days: 14,
     label: 'на 14 дн.',
     targetDate: null,
+    isPaydayToday: false,
   };
 };
 
-// Чистая функция расчета безопасного дневного лимита и кассового разрыва (v0.7.5)
+// Чистая функция расчета безопасного дневного лимита и кассового разрыва
 export const calculateSafeDailyBudget = ({
   activeBalance = 0,
   unpaidMandatoryTotal = 0,
@@ -149,13 +227,13 @@ export const calculateSafeDailyBudget = ({
   };
 };
 
-// Безопасное слияние (Merge) транзакций с фильтрацией дубликатов по ID и сигнатуре (v0.7.5)
+// Безопасное слияние (Merge) транзакций с фильтрацией дубликатов по ID и сигнатуре
 export const mergeTransactions = (existingTxs = [], incomingTxs = []) => {
   const existingIds = new Set(existingTxs.map((t) => String(t.id)));
   const existingSignatures = new Set(
     existingTxs.map(
       (t) =>
-        `${t.date}|${t.type}|${Math.round(Number(t.amount) || 0)}|${(t.title || '').trim().toLowerCase()}|${t.account || 'family'}`
+        `${t.date}|${t.type}|${Math.round(Number(t.amount) || 0)}|${(t.title || '').trim().toLowerCase()}|${t.account || 'family'}|${t.transferTo || ''}`
     )
   );
 
@@ -163,7 +241,7 @@ export const mergeTransactions = (existingTxs = [], incomingTxs = []) => {
   let skippedCount = 0;
 
   for (const tx of incomingTxs) {
-    const sig = `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${tx.account || 'family'}`;
+    const sig = `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${tx.account || 'family'}|${tx.transferTo || ''}`;
     if (existingIds.has(String(tx.id)) || existingSignatures.has(sig)) {
       skippedCount++;
       continue;
@@ -193,7 +271,7 @@ export const calculateDebtPayoff = (debt) => {
   return { total, paid, remaining, progressPct, monthsLeft, isRegular, monthly };
 };
 
-// Сравнительный баланс и эффективность двух партнеров за месяц
+// Сравнительный баланс и эффективность двух партнеров за месяц (с учетом переводов в семейный резерв)
 export const calculatePartnerComparison = (transactions = [], userProfiles = {}, targetYm = getCurrentMonthPrefix()) => {
   const profiles = (userProfiles && typeof userProfiles === 'object') ? userProfiles : {};
   const p1 = profiles.husband || { name: 'Партнер 1', emoji: '🧔🏻‍♂️' };
@@ -217,6 +295,19 @@ export const calculatePartnerComparison = (transactions = [], userProfiles = {},
     const amt = Math.round(Number(tx.amount) || 0);
     const author = tx.author || 'husband';
     const acc = tx.account || 'shared';
+
+    if (tx.type === 'transfer') {
+      const fromW = getWalletKeyFromTx(tx);
+      const toW = tx.transferTo || 'shared';
+      if (fromW === 'husband' && toW === 'shared') {
+        p1SharedContribution += amt;
+        sharedPoolIncome += amt;
+      } else if (fromW === 'wife' && toW === 'shared') {
+        p2SharedContribution += amt;
+        sharedPoolIncome += amt;
+      }
+      continue;
+    }
 
     if (tx.type === 'income') {
       if (acc === 'personal') {

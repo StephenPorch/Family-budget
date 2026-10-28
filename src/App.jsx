@@ -4,7 +4,7 @@ import {
   Sparkles, ChevronRight, ChevronLeft, Search, Trash2,
   SlidersHorizontal, RotateCcw, Edit3, Check, LayoutGrid,
   ListOrdered, Target, ArrowUpRight, ShieldCheck,
-  CheckCircle2, FileSpreadsheet, Bell, TrendingUp, AlertCircle
+  CheckCircle2, FileSpreadsheet, Bell, TrendingUp, AlertCircle, ArrowRightLeft
 } from 'lucide-react';
 
 import {
@@ -41,6 +41,7 @@ import {
   getRecurringReminderStatus,
   calculatePartnerComparison,
   calculateHorizonDays,
+  getWalletKeyFromTx,
 } from './utils/financeCore.js';
 
 import { ChartsSection } from './components/analytics/ChartsSection.jsx';
@@ -236,6 +237,10 @@ export default function FamilyBudgetApp() {
   useEffect(() => {
     saveToStorage('family_budget_device_owner', deviceOwner);
   }, [deviceOwner]);
+
+  useEffect(() => {
+    saveToStorage('family_budget_limit_config', safeLimitConfig);
+  }, [safeLimitConfig]);
 
   useEffect(() => {
     saveToStorage('family_budget_custom_categories', customCategories);
@@ -540,6 +545,23 @@ export default function FamilyBudgetApp() {
       if (txDateStr > endOfSelectedMonth) return;
 
       const val = Number(t.amount) || 0;
+      if (t.type === 'transfer') {
+        const fromW = getWalletKeyFromTx(t);
+        const toW = (t.transferTo === 'shared' || t.transferTo === 'husband' || t.transferTo === 'wife')
+          ? t.transferTo
+          : (fromW === 'shared' ? 'husband' : 'shared');
+        if (fromW !== toW) {
+          if (fromW === 'shared') shared.expense += val;
+          else if (fromW === 'wife') wifePersonal.expense += val;
+          else husbandPersonal.expense += val;
+
+          if (toW === 'shared') shared.income += val;
+          else if (toW === 'wife') wifePersonal.income += val;
+          else husbandPersonal.income += val;
+        }
+        return;
+      }
+
       const acc = t.account || 'shared';
 
       if (acc === 'shared') {
@@ -558,6 +580,21 @@ export default function FamilyBudgetApp() {
 
     periodTransactions.forEach(t => {
       const val = Number(t.amount) || 0;
+      if (t.type === 'transfer') {
+        const fromW = getWalletKeyFromTx(t);
+        const toW = t.transferTo || 'shared';
+        if (fromW !== toW) {
+          if (toW === 'shared') {
+            shared.monthIncome += val;
+            if (fromW === 'husband') shared.husbandIncome += val;
+            if (fromW === 'wife') shared.wifeIncome += val;
+          }
+          if (fromW === 'shared') {
+            shared.monthExpense += val;
+          }
+        }
+        return;
+      }
       const acc = t.account || 'shared';
       const isSavingOrDebt = isSavingsOrDebtTx(t);
 
@@ -802,7 +839,7 @@ export default function FamilyBudgetApp() {
 
   // Сохранение (добавление или редактирование) транзакции без принудительного сброса выбранного месяца
   const handleSaveTransaction = useCallback((payload) => {
-    const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, date: finalDate, stayOpen } = payload;
+    const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, date: finalDate, stayOpen } = payload;
 
     if (id) {
       const oldTx = transactions.find(t => t.id === id);
@@ -818,6 +855,7 @@ export default function FamilyBudgetApp() {
                 category: locked ? t.category : selectedCategory,
                 account: selectedAccount,
                 author: txAuthor,
+                ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : { fromWallet: undefined, transferTo: undefined }),
                 date: finalDate,
               }
             : t
@@ -902,6 +940,7 @@ export default function FamilyBudgetApp() {
         category: selectedCategory,
         account: selectedAccount,
         author: txAuthor,
+        ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : {}),
         date: finalDate,
       };
       setTransactions(prev => [newTx, ...prev]);
@@ -1515,7 +1554,7 @@ export default function FamilyBudgetApp() {
 
     const summaryRows = [
       ['Показатель', 'Значение (₽ / %)', 'Период / Комментарий'],
-      ['Версия приложения', 'v0.7.8', `Дата выгрузки: ${getLocalDateString()}`],
+      ['Версия приложения', 'v0.8.0', `Дата выгрузки: ${getLocalDateString()}`],
       ['Выбранный период', formatMonthTitle(selectedMonth), targetYm],
       ['Кумулятивный баланс: Общий котел', stats.shared.balance, `Доходы мес: +${stats.shared.monthIncome} / Расходы мес: -${stats.shared.monthExpense}`],
       ['Кумулятивный баланс: Личный (Муж)', stats.husbandPersonal.balance, `Доходы мес: +${stats.husbandPersonal.monthIncome} / Расходы мес: -${stats.husbandPersonal.monthExpense}`],
@@ -1627,7 +1666,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.8-${getLocalDateString()}.xlsx`;
+    a.download = `family-budget-v0.8.0-${getLocalDateString()}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1703,7 +1742,7 @@ export default function FamilyBudgetApp() {
         d.monthlyPayment,
         d.account || 'shared',
         d.author || 'husband',
-        `${d.icon || '💳'};${d.color || 'from-rose-500 to-red-500'};${(d.paidMonths || []).join('|')}`,
+        `${d.icon || '💳'};${d.color || 'from-rose-500 to-red-500'};${(d.paidMonths || []).join('|')};${d.isRegular === false ? 'flexible' : 'regular'}`,
       ]));
     });
 
@@ -1748,6 +1787,8 @@ export default function FamilyBudgetApp() {
           t.goalId ? `goal:${t.goalId}` : '',
           t.debtId ? `debt:${t.debtId}` : '',
           t.recurringId ? `rec:${t.recurringId}` : '',
+          t.transferTo ? `to:${t.transferTo}` : '',
+          t.fromWallet ? `from:${t.fromWallet}` : '',
         ].filter(Boolean).join('|');
 
         lines.push(toCsvLine([
@@ -1775,7 +1816,7 @@ export default function FamilyBudgetApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.8-backup-${getLocalDateString()}.csv`;
+    a.download = `family-budget-v0.8.0-backup-${getLocalDateString()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1785,7 +1826,7 @@ export default function FamilyBudgetApp() {
 
   const handleDownloadJson = () => {
     const payload = {
-      version: '0.7.6',
+      version: '0.8.0',
       exportedAt: new Date().toISOString(),
       transactions,
       goals,
@@ -1795,12 +1836,13 @@ export default function FamilyBudgetApp() {
       plannedCategoryLimits,
       userProfiles,
       deviceOwner,
+      safeLimitConfig,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.7.8-backup-${getLocalDateString()}.json`;
+    a.download = `family-budget-v0.8.0-backup-${getLocalDateString()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1928,6 +1970,9 @@ export default function FamilyBudgetApp() {
           if (parsed.deviceOwner && (parsed.deviceOwner === 'husband' || parsed.deviceOwner === 'wife')) {
             setDeviceOwner(parsed.deviceOwner);
           }
+          if (parsed.safeLimitConfig && typeof parsed.safeLimitConfig === 'object') {
+            setSafeLimitConfig(parsed.safeLimitConfig);
+          }
           setIsExportModalOpen(false);
           showToast(
             isMerge
@@ -1970,10 +2015,15 @@ export default function FamilyBudgetApp() {
               const goalLink = extraParts.find(x => x.startsWith('goal:'))?.slice(5);
               const debtLink = extraParts.find(x => x.startsWith('debt:'))?.slice(5);
               const recLink = extraParts.find(x => x.startsWith('rec:'))?.slice(4);
+              const toLink = extraParts.find(x => x.startsWith('to:'))?.slice(3);
+              const fromLink = extraParts.find(x => x.startsWith('from:'))?.slice(5);
+              const parsedType = (dirOrStatus === 'transfer' || dirOrStatus === 'Перевод')
+                ? 'transfer'
+                : (dirOrStatus === 'income' || dirOrStatus === 'Доход' ? 'income' : 'expense');
               nextTxs.push({
                 id: id || `imp_tx_${Date.now()}_${idx}`,
                 date: normalizeImportedDate(dateOrDay),
-                type: dirOrStatus === 'income' || dirOrStatus === 'Доход' ? 'income' : 'expense',
+                type: parsedType,
                 category: category || 'Продукты',
                 title: title || category || 'Операция',
                 amount: parseImportedAmount(amountCur),
@@ -1982,6 +2032,8 @@ export default function FamilyBudgetApp() {
                 ...(goalLink ? { goalId: goalLink } : {}),
                 ...(debtLink ? { debtId: debtLink } : {}),
                 ...(recLink ? { recurringId: recLink } : {}),
+                ...(toLink ? { transferTo: toLink } : {}),
+                ...(fromLink ? { fromWallet: fromLink } : {}),
               });
             } else if (recType === 'RECURRING') {
               nextRecs.push({
@@ -1996,16 +2048,18 @@ export default function FamilyBudgetApp() {
                 paidMonths: (extra || '').split('|').filter(Boolean),
               });
             } else if (recType === 'DEBT') {
-              const [icon, color, paidStr] = (extra || '').split(';');
+              const [icon, color, paidStr, regFlag] = (extra || '').split(';');
+              const isReg = regFlag !== 'flexible';
               nextDebts.push({
                 id: id || `imp_debt_${idx}`,
                 title: title || 'Кредит',
                 remainingAmount: parseImportedAmount(amountCur),
                 initialAmount: parseImportedAmount(targetInit) || parseImportedAmount(amountCur) || 100000,
-                monthlyPayment: parseImportedAmount(payPlan) || 10000,
+                monthlyPayment: isReg ? (parseImportedAmount(payPlan) || 10000) : 0,
                 paymentDay: Number(dateOrDay) || 12,
                 account: account === 'personal' ? 'personal' : 'shared',
                 author: author === 'wife' ? 'wife' : 'husband',
+                isRegular: isReg,
                 icon: icon || '💳',
                 color: color || 'from-rose-500 to-red-500',
                 paidMonths: (paidStr || '').split('|').filter(Boolean),
@@ -2160,7 +2214,7 @@ export default function FamilyBudgetApp() {
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
-    showToast('Демонстрационные данные v0.7.8 восстановлены');
+    showToast('Демонстрационные данные v0.8.0 восстановлены');
   };
 
   // Фильтрация истории операций
@@ -2192,6 +2246,7 @@ export default function FamilyBudgetApp() {
       if (!(t.date || '').startsWith(targetYm)) return;
       if (!byDate[t.date]) byDate[t.date] = { count: 0, expense: 0, income: 0 };
       byDate[t.date].count += 1;
+      if (t.type === 'transfer') return;
       if (t.type === 'income') byDate[t.date].income += Number(t.amount) || 0;
       else byDate[t.date].expense += Number(t.amount) || 0;
     });
@@ -2228,7 +2283,9 @@ export default function FamilyBudgetApp() {
       const g = map.get(d);
       g.items.push(tx);
       const val = Number(tx.amount) || 0;
-      g.net += tx.type === 'income' ? val : -val;
+      if (tx.type !== 'transfer') {
+        g.net += tx.type === 'income' ? val : -val;
+      }
     });
 
     return groups;
@@ -2411,6 +2468,7 @@ export default function FamilyBudgetApp() {
         (activeWalletCard === 'wife' && acc === 'personal' && t.author === 'wife');
       if (!matches) return;
 
+      if (t.type === 'transfer') return;
       const val = Number(t.amount) || 0;
       if (t.type === 'income') {
         bucket.inc += val;
@@ -2435,8 +2493,14 @@ export default function FamilyBudgetApp() {
   // Карточка одной строки операции (выровнена по модульной сетке 4px/8px и tabular-nums)
   const renderTransactionRow = (tx) => {
     const catObj = getCategoryMeta(tx.category, tx.type, customCategories);
+    const isTransfer = tx.type === 'transfer';
     const isExpense = tx.type === 'expense';
     const isShared = (tx.account || 'shared') === 'shared';
+    const getShortWalletLabel = (wKey) => {
+      if (wKey === 'husband') return `${safeProfiles.husband?.emoji || '🧔🏻‍♂️'} ${safeProfiles.husband?.name || 'Партнер 1'}`;
+      if (wKey === 'wife') return `${safeProfiles.wife?.emoji || '👩🏼'} ${safeProfiles.wife?.name || 'Партнер 2'}`;
+      return '👥 Общий котел';
+    };
 
     return (
       <div
@@ -2474,14 +2538,27 @@ export default function FamilyBudgetApp() {
                   🛡️ Постоянный
                 </span>
               )}
+              {isTransfer && (
+                <span className="h-5 px-1.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-semibold inline-flex items-center shrink-0">
+                  ⇄ Перевод
+                </span>
+              )}
             </div>
             <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5 truncate">
               <span className="truncate font-medium text-stone-600">{catObj.name}</span>
               <span className="text-stone-300">•</span>
-              <span className="inline-flex items-center gap-1 text-stone-600 shrink-0">
-                <span>{tx.author === 'husband' ? (safeProfiles.husband?.emoji || '🧔🏻‍♂️') : (safeProfiles.wife?.emoji || '👩🏼')}</span>
-                <span>{isShared ? 'Общий котел' : (tx.author === 'husband' ? (safeProfiles.husband?.name || 'Личный') : (safeProfiles.wife?.name || 'Личный'))}</span>
-              </span>
+              {isTransfer ? (
+                <span className="inline-flex items-center gap-1 text-indigo-700 font-medium shrink-0">
+                  <span>{getShortWalletLabel(getWalletKeyFromTx(tx))}</span>
+                  <span>→</span>
+                  <span>{getShortWalletLabel(tx.transferTo || 'shared')}</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-stone-600 shrink-0">
+                  <span>{tx.author === 'husband' ? (safeProfiles.husband?.emoji || '🧔🏻‍♂️') : (safeProfiles.wife?.emoji || '👩🏼')}</span>
+                  <span>{isShared ? 'Общий котел' : (tx.author === 'husband' ? (safeProfiles.husband?.name || 'Личный') : (safeProfiles.wife?.name || 'Личный'))}</span>
+                </span>
+              )}
               <span className="text-stone-300">•</span>
               <span className="text-stone-500 font-mono text-[11px] tabular-nums shrink-0">{tx.date}</span>
             </div>
@@ -2489,8 +2566,8 @@ export default function FamilyBudgetApp() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
-            {isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
+          <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isTransfer ? 'text-indigo-700' : isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
+            {isTransfer ? '⇄ ' : isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
           </div>
           <button
             type="button"
@@ -2529,7 +2606,7 @@ export default function FamilyBudgetApp() {
                   Семейный Бюджет
                 </h1>
                 <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
-                  v0.7.8
+                  v0.8.0
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
@@ -2950,6 +3027,7 @@ export default function FamilyBudgetApp() {
               partnerComparisonData={partnerComparisonData}
               userProfiles={safeProfiles}
               daysInMonth={stats.daysInMonth}
+              safeLimitConfig={safeLimitConfig}
             />
 
             {/* СРЕДНИЙ РЯД (12-колоночная сетка с выравниванием карточек по высоте items-stretch) */}
@@ -3309,11 +3387,12 @@ export default function FamilyBudgetApp() {
 
                   <div>
                     <label className="text-xs font-semibold text-stone-600 block mb-1.5">Тип операции:</label>
-                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
+                    <div className="grid grid-cols-4 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
                       {[
                         { id: 'all', label: 'Все' },
                         { id: 'expense', label: 'Расходы' },
                         { id: 'income', label: 'Доходы' },
+                        { id: 'transfer', label: '⇄ Переводы' },
                       ].map(opt => (
                         <button
                           key={opt.id}

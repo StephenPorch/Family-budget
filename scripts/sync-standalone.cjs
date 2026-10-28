@@ -13,6 +13,8 @@ const moduleFiles = [
   'utils/csv.js',
   'utils/financeCore.js',
   'hooks/useFocusTrap.js',
+  'hooks/useBackdropDismiss.js',
+  'components/ErrorBoundary.jsx',
   'components/analytics/ChartsSection.jsx',
   'components/calendar/ReceiptCalendar.jsx',
   'components/modals/ExportBackupModal.jsx',
@@ -27,7 +29,8 @@ function stripImportsAndExports(code, isAppFile = false) {
     .replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?\s*/g, '')
     // Replace named exports with plain declarations
     .replace(/export\s+const\s+/g, 'const ')
-    .replace(/export\s+function\s+/g, 'function ');
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+class\s+/g, 'class ');
 
   if (!isAppFile) {
     cleaned = cleaned.replace(/export\s+default\s+/g, '');
@@ -60,7 +63,7 @@ import {
   ListOrdered, Target, ArrowUpRight, ShieldCheck,
   CheckCircle2, TrendingUp, BarChart3, Clock, Lock,
   Download, Upload, FileSpreadsheet, Copy, Bell, Pin,
-  AlertTriangle, AlertCircle
+  AlertTriangle, AlertCircle, ArrowRightLeft
 } from 'lucide-react';
 `;
 
@@ -77,7 +80,7 @@ const standaloneHeader = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный Бюджет v0.7.8 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.8.0 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -138,10 +141,11 @@ const standaloneHeader = `<!DOCTYPE html>
     const Pin = createSvgIcon(<><line x1="12" x2="12" y1="17" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></>);
     const AlertTriangle = createSvgIcon(<><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></>);
     const AlertCircle = createSvgIcon(<><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></>);
+    const ArrowRightLeft = createSvgIcon(<><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></>);
 `;
 
 const standaloneFooter = `
-    ReactDOM.createRoot(document.getElementById('root')).render(<FamilyBudgetApp />);
+    ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><FamilyBudgetApp /></ErrorBoundary>);
   </script>
 </body>
 </html>
@@ -155,4 +159,4 @@ const bundledStandaloneBody = processedModulesForStandalone
 
 const finalStandalone = `${standaloneHeader}\n${bundledStandaloneBody}\n${standaloneFooter}`;
 fs.writeFileSync(standalonePath, finalStandalone, 'utf8');
-console.log('standalone.html v0.7.8 generated successfully! Length:', finalStandalone.length);
+console.log('standalone.html v0.8.0 generated successfully! Length:', finalStandalone.length);

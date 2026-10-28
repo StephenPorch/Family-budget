@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Edit3, X, Lock, Calendar, Pin, Check } from 'lucide-react';
+import { Edit3, X, Lock, Calendar, Pin, Check, ArrowRightLeft } from 'lucide-react';
 import { getLocalDateString, getOffsetDateString } from '../../utils/dateUtils.js';
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from '../../utils/storage.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
@@ -25,10 +25,11 @@ export const TransactionModal = React.memo(function TransactionModal({
 
   const [amount, setAmount] = useState('');
   const [txTitle, setTxTitle] = useState('');
-  const [txType, setTxType] = useState('expense');
+  const [txType, setTxType] = useState('expense'); // 'expense' | 'income' | 'transfer'
   const [selectedCategory, setSelectedCategory] = useState(DEFAULT_EXPENSE_CATEGORIES[0].name);
   const [selectedAccount, setSelectedAccount] = useState('shared');
   const [txAuthor, setTxAuthor] = useState('husband');
+  const [transferTo, setTransferTo] = useState('shared');
   const [txDate, setTxDate] = useState(getLocalDateString);
   const [isBatchReceiptMode, setIsBatchReceiptMode] = useState(false);
 
@@ -38,23 +39,66 @@ export const TransactionModal = React.memo(function TransactionModal({
   const [newCatIcon, setNewCatIcon] = useState('🏷️');
   const [newCatBucket, setNewCatBucket] = useState('base');
 
+  const p1Name = userProfiles?.husband?.name || 'Партнер 1';
+  const p1Emoji = userProfiles?.husband?.emoji || '🧔🏻‍♂️';
+  const p2Name = userProfiles?.wife?.name || 'Партнер 2';
+  const p2Emoji = userProfiles?.wife?.emoji || '👩🏼';
+
+  const getWalletLabel = (wKey) => {
+    if (wKey === 'husband') return `${p1Emoji} ${p1Name}`;
+    if (wKey === 'wife') return `${p2Emoji} ${p2Name}`;
+    return '👥 Общий котел (Резерв)';
+  };
+
+  const currentFromWallet = selectedAccount === 'shared' ? 'shared' : (txAuthor === 'wife' ? 'wife' : 'husband');
+
+  const setFromWalletKey = (wKey) => {
+    if (wKey === 'shared') {
+      setSelectedAccount('shared');
+      setTxAuthor(currentUser);
+      if (transferTo === 'shared') {
+        setTransferTo(currentUser === 'wife' ? 'wife' : 'husband');
+      }
+    } else {
+      setSelectedAccount('personal');
+      setTxAuthor(wKey);
+      if (transferTo === wKey) {
+        setTransferTo('shared');
+      }
+    }
+  };
+
+  const setToWalletKey = (wKey) => {
+    if (wKey === currentFromWallet) {
+      const fallbackFrom = wKey === 'shared' ? (currentUser === 'wife' ? 'wife' : 'husband') : 'shared';
+      setFromWalletKey(fallbackFrom);
+    }
+    setTransferTo(wKey);
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     if (initialTx) {
       setAmount(String(initialTx.amount));
       setTxTitle(initialTx.title === initialTx.category ? '' : initialTx.title);
-      setTxType(initialTx.type);
-      setSelectedCategory(initialTx.category);
+      setTxType(initialTx.type || 'expense');
+      setSelectedCategory(initialTx.category || DEFAULT_EXPENSE_CATEGORIES[0].name);
       setSelectedAccount(initialTx.account || 'shared');
       setTxAuthor(initialTx.author || currentUser);
+      setTransferTo(initialTx.transferTo || 'shared');
       setTxDate(initialTx.date || getLocalDateString());
     } else {
       setAmount('');
       setTxTitle('');
-      setTxType('expense');
+      const initType = presetConfig?.type || 'expense';
+      setTxType(initType);
       setSelectedCategory(DEFAULT_EXPENSE_CATEGORIES[0].name);
-      setSelectedAccount(presetConfig?.account || 'shared');
-      setTxAuthor(presetConfig?.author || currentUser);
+      const initAcc = presetConfig?.account || (initType === 'transfer' ? 'personal' : 'shared');
+      const initAuth = presetConfig?.author || currentUser;
+      setSelectedAccount(initAcc);
+      setTxAuthor(initAuth);
+      const fromW = initAcc === 'shared' ? 'shared' : (initAuth === 'wife' ? 'wife' : 'husband');
+      setTransferTo(presetConfig?.transferTo || (fromW === 'shared' ? (currentUser === 'wife' ? 'wife' : 'husband') : 'shared'));
       setTxDate(presetConfig?.date || getLocalDateString());
       setIsBatchReceiptMode(Boolean(presetConfig?.batchMode));
     }
@@ -75,6 +119,17 @@ export const TransactionModal = React.memo(function TransactionModal({
     if (isLockedType) return;
     setTxType(newType);
     setIsAddingCustomCategory(false);
+    if (newType === 'transfer') {
+      const fromW = selectedAccount === 'shared' ? 'shared' : (txAuthor === 'wife' ? 'wife' : 'husband');
+      if (fromW === 'shared' && transferTo === 'shared') {
+        setSelectedAccount('personal');
+        setTxAuthor(currentUser);
+        setTransferTo('shared');
+      } else if (fromW === transferTo) {
+        setTransferTo(fromW === 'shared' ? (currentUser === 'wife' ? 'wife' : 'husband') : 'shared');
+      }
+      return;
+    }
     if (newType === 'income') {
       const exists = [...DEFAULT_INCOME_CATEGORIES, ...customCategories.filter(c => c.type === 'income')].some(c => c.name === selectedCategory);
       if (!exists) setSelectedCategory(DEFAULT_INCOME_CATEGORIES[0].name);
@@ -105,17 +160,37 @@ export const TransactionModal = React.memo(function TransactionModal({
     if (!num || num <= 0) return;
 
     const stayOpen = !initialTx && Boolean(keepOpenOverride || isBatchReceiptMode);
-    onSaveTransaction({
-      id: initialTx?.id || null,
-      amount: num,
-      title: txTitle.trim() || selectedCategory,
-      type: txType,
-      category: selectedCategory,
-      account: selectedAccount,
-      author: txAuthor,
-      date: txDate || getLocalDateString(),
-      stayOpen,
-    });
+
+    if (txType === 'transfer') {
+      const fromW = currentFromWallet;
+      const toW = transferTo === fromW ? (fromW === 'shared' ? 'husband' : 'shared') : transferTo;
+      const autoTransferTitle = `${getWalletLabel(fromW)} → ${getWalletLabel(toW)}`;
+      onSaveTransaction({
+        id: initialTx?.id || null,
+        amount: num,
+        title: txTitle.trim() || autoTransferTitle,
+        type: 'transfer',
+        category: 'Перевод между счетами',
+        account: fromW === 'shared' ? 'shared' : 'personal',
+        author: fromW === 'shared' ? currentUser : fromW,
+        fromWallet: fromW,
+        transferTo: toW,
+        date: txDate || getLocalDateString(),
+        stayOpen,
+      });
+    } else {
+      onSaveTransaction({
+        id: initialTx?.id || null,
+        amount: num,
+        title: txTitle.trim() || selectedCategory,
+        type: txType,
+        category: selectedCategory,
+        account: selectedAccount,
+        author: txAuthor,
+        date: txDate || getLocalDateString(),
+        stayOpen,
+      });
+    }
 
     if (stayOpen) {
       setAmount('');
@@ -141,7 +216,7 @@ export const TransactionModal = React.memo(function TransactionModal({
               <Edit3 className="w-4 h-4" />
             </span>
             <span id="add-modal-title" className="font-semibold text-stone-900 text-sm">
-              {initialTx ? 'Редактирование операции' : 'Запись расхода / дохода'}
+              {initialTx ? 'Редактирование операции' : 'Запись расхода / дохода / перевода'}
             </span>
           </div>
           <button
@@ -155,8 +230,8 @@ export const TransactionModal = React.memo(function TransactionModal({
         </div>
 
         <form onSubmit={(e) => submitForm(e, false)} className="pt-4 space-y-4">
-          {/* Переключатель Расход / Доход — фиксированная высота h-10 */}
-          <div className="grid grid-cols-2 gap-1 bg-stone-100 p-1 rounded-xl h-10">
+          {/* 3-сегментный переключатель: Расход / Доход / Перевод — фиксированная высота h-10 */}
+          <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl h-10">
             <button
               type="button"
               disabled={isLockedType}
@@ -176,6 +251,17 @@ export const TransactionModal = React.memo(function TransactionModal({
               } ${isLockedType ? 'cursor-not-allowed opacity-80' : ''}`}
             >
               Доход (+)
+            </button>
+            <button
+              type="button"
+              disabled={isLockedType}
+              onClick={() => handleTypeSwitch('transfer')}
+              className={`h-8 text-xs font-semibold rounded-lg transition flex items-center justify-center gap-1 ${
+                txType === 'transfer' ? 'bg-white text-indigo-700 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+              } ${isLockedType ? 'cursor-not-allowed opacity-80' : ''}`}
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" />
+              <span>Перевод</span>
             </button>
           </div>
 
@@ -233,7 +319,7 @@ export const TransactionModal = React.memo(function TransactionModal({
             </div>
           </div>
 
-          {/* Блок даты и пакетного режима — все элементы выровнены по сетке h-9 */}
+          {/* Блок даты и пакетного режима */}
           <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-semibold text-stone-800 flex items-center gap-1.5">
@@ -288,181 +374,286 @@ export const TransactionModal = React.memo(function TransactionModal({
             </div>
           </div>
 
-          {/* Источник / получатель средств — фиксированная высота h-10 */}
-          <div>
-            <label className="text-xs font-medium text-stone-600 block mb-1.5">
-              Источник / получатель средств:
-            </label>
-            <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl h-10">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedAccount('shared');
-                  setTxAuthor(currentUser);
-                }}
-                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
-                  selectedAccount === 'shared'
-                    ? 'bg-stone-900 text-white shadow-sm'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                👥 Общий котел
-              </button>
+          {txType === 'transfer' ? (
+            /* БЛОК ПЕРЕВОДА МЕЖДУ КОШЕЛЬКАМИ (v0.8.0) */
+            <div className="p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-200/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+                  <span>Маршрут перевода (без искажения трат)</span>
+                </span>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedAccount('personal');
-                  setTxAuthor('husband');
-                }}
-                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
-                  selectedAccount === 'personal' && txAuthor === 'husband'
-                    ? 'bg-stone-900 text-white shadow-sm'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                title={`Личный счет: ${userProfiles?.husband?.name || 'Партнер 1'}`}
-              >
-                <span>{userProfiles?.husband?.emoji || '🧔🏻‍♂️'}</span>
-                <span className="truncate">{userProfiles?.husband?.name || 'Партнер 1'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedAccount('personal');
-                  setTxAuthor('wife');
-                }}
-                className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
-                  selectedAccount === 'personal' && txAuthor === 'wife'
-                    ? 'bg-stone-900 text-white shadow-sm'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                title={`Личный счет: ${userProfiles?.wife?.name || 'Партнер 2'}`}
-              >
-                <span>{userProfiles?.wife?.emoji || '👩🏼'}</span>
-                <span className="truncate">{userProfiles?.wife?.name || 'Партнер 2'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Категории — все кнопки фиксированной высоты h-10 */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-stone-600">
-                Категория
-              </label>
-              <div className="flex items-center gap-2">
-                {customCategories.some(c => (txType === 'income' ? c.type === 'income' : c.type !== 'income')) && (
-                  <button
-                    type="button"
-                    onClick={() => setIsManagingCategories(!isManagingCategories)}
-                    className="text-xs font-medium text-stone-600 hover:text-stone-900"
-                  >
-                    {isManagingCategories ? 'Готово' : 'Изм.'}
-                  </button>
-                )}
+              {/* Быстрые пресеты перевода */}
+              <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setIsAddingCustomCategory(!isAddingCustomCategory)}
-                  className="text-xs font-semibold text-stone-700 hover:text-stone-900"
+                  onClick={() => {
+                    setFromWalletKey(currentUser === 'wife' ? 'wife' : 'husband');
+                    setTransferTo('shared');
+                  }}
+                  className="h-7 px-2 rounded-lg bg-white border border-indigo-200 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate"
                 >
-                  {isAddingCustomCategory ? 'Отмена' : '+ Своя'}
+                  В резерв → 👥
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const me = currentUser === 'wife' ? 'wife' : 'husband';
+                    const other = me === 'wife' ? 'husband' : 'wife';
+                    setFromWalletKey(me);
+                    setTransferTo(other);
+                  }}
+                  className="h-7 px-2 rounded-lg bg-white border border-indigo-200 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate"
+                >
+                  Партнеру →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFromWalletKey('shared');
+                    setTransferTo(currentUser === 'wife' ? 'wife' : 'husband');
+                  }}
+                  className="h-7 px-2 rounded-lg bg-white border border-indigo-200 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate"
+                >
+                  Из резерва ←
                 </button>
               </div>
-            </div>
 
-            {isAddingCustomCategory && (
-              <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl mb-3 space-y-2 animate-fade-in">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="🏷️"
-                    value={newCatIcon}
-                    onChange={(e) => setNewCatIcon(e.target.value)}
-                    aria-label="Эмодзи категории"
-                    className="w-10 h-9 text-center text-base bg-white border border-stone-200 rounded-lg focus:outline-none shrink-0"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Название категории..."
-                    value={newCatName}
-                    onChange={(e) => setNewCatName(e.target.value)}
-                    aria-label="Название новой категории"
-                    className="flex-1 h-9 text-xs px-3 bg-white border border-stone-200 rounded-lg focus:outline-none"
-                  />
+              <div>
+                <label className="text-[11px] font-semibold text-stone-600 block mb-1">
+                  1. Откуда списать:
+                </label>
+                <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-xl border border-stone-200/80 h-10">
+                  {[
+                    { key: 'husband', label: `${p1Emoji} ${p1Name}` },
+                    { key: 'wife', label: `${p2Emoji} ${p2Name}` },
+                    { key: 'shared', label: '👥 Общий котел' },
+                  ].map(w => (
+                    <button
+                      key={w.key}
+                      type="button"
+                      onClick={() => setFromWalletKey(w.key)}
+                      className={`h-8 px-1.5 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                        currentFromWallet === w.key
+                          ? 'bg-stone-900 text-white shadow-sm'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-stone-600 block mb-1">
+                  2. Куда зачислить:
+                </label>
+                <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-xl border border-stone-200/80 h-10">
+                  {[
+                    { key: 'shared', label: '👥 Общий котел' },
+                    { key: 'husband', label: `${p1Emoji} ${p1Name}` },
+                    { key: 'wife', label: `${p2Emoji} ${p2Name}` },
+                  ].map(w => (
+                    <button
+                      key={w.key}
+                      type="button"
+                      disabled={currentFromWallet === w.key}
+                      onClick={() => setToWalletKey(w.key)}
+                      className={`h-8 px-1.5 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                        transferTo === w.key
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : currentFromWallet === w.key
+                          ? 'text-stone-300 cursor-not-allowed'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Источник / получатель средств — фиксированная высота h-10 */}
+              <div>
+                <label className="text-xs font-medium text-stone-600 block mb-1.5">
+                  Источник / получатель средств:
+                </label>
+                <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl h-10">
                   <button
                     type="button"
-                    onClick={handleAddCategory}
-                    aria-label="Сохранить категорию"
-                    className="w-9 h-9 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-stone-800 transition flex items-center justify-center shrink-0"
+                    onClick={() => {
+                      setSelectedAccount('shared');
+                      setTxAuthor(currentUser);
+                    }}
+                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                      selectedAccount === 'shared'
+                        ? 'bg-stone-900 text-white shadow-sm'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
                   >
-                    <Check className="w-4 h-4" />
+                    👥 Общий котел
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedAccount('personal');
+                      setTxAuthor('husband');
+                    }}
+                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
+                      selectedAccount === 'personal' && txAuthor === 'husband'
+                        ? 'bg-stone-900 text-white shadow-sm'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                    title={`Личный счет: ${p1Name}`}
+                  >
+                    <span>{p1Emoji}</span>
+                    <span className="truncate">{p1Name}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedAccount('personal');
+                      setTxAuthor('wife');
+                    }}
+                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
+                      selectedAccount === 'personal' && txAuthor === 'wife'
+                        ? 'bg-stone-900 text-white shadow-sm'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                    title={`Личный счет: ${p2Name}`}
+                  >
+                    <span>{p2Emoji}</span>
+                    <span className="truncate">{p2Name}</span>
                   </button>
                 </div>
-                {txType === 'expense' && (
-                  <div className="flex items-center justify-between text-xs pt-1">
-                    <span className="text-stone-600">Корзина 50/30/20:</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setNewCatBucket('base')}
-                        className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
-                          newCatBucket === 'base' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
-                        }`}
-                      >
-                        🏠 База (50%)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewCatBucket('wants')}
-                        className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
-                          newCatBucket === 'wants' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
-                        }`}
-                      >
-                        ☕ Хотелки (30%)
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
-            )}
 
-            <div className="grid grid-cols-3 gap-2">
-              {activeCategories.map(c => (
-                <div key={c.id} className="relative">
-                  <button
-                    type="button"
-                    disabled={isLockedType}
-                    onClick={() => setSelectedCategory(c.name)}
-                    className={`w-full h-10 px-2.5 rounded-xl flex items-center gap-2 text-left border transition ${
-                      selectedCategory === c.name
-                        ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
-                        : 'border-stone-200/80 bg-stone-50 text-stone-700 hover:bg-stone-100'
-                    } ${isLockedType ? 'opacity-75 cursor-not-allowed' : ''}`}
-                  >
-                    <span className="text-sm shrink-0">{c.icon}</span>
-                    <span className="text-xs font-medium truncate">{c.name}</span>
-                  </button>
-                  {isManagingCategories && c.id.startsWith('cat_') && (
+              {/* Категории — все кнопки фиксированной высоты h-10 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-stone-600">
+                    Категория
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {customCategories.some(c => (txType === 'income' ? c.type === 'income' : c.type !== 'income')) && (
+                      <button
+                        type="button"
+                        onClick={() => setIsManagingCategories(!isManagingCategories)}
+                        className="text-xs font-medium text-stone-600 hover:text-stone-900"
+                      >
+                        {isManagingCategories ? 'Готово' : 'Изм.'}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={(e) => onDeleteCustomCategory(e, c.id)}
-                      aria-label={`Удалить категорию ${c.name}`}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow"
+                      onClick={() => setIsAddingCustomCategory(!isAddingCustomCategory)}
+                      className="text-xs font-semibold text-stone-700 hover:text-stone-900"
                     >
-                      ×
+                      {isAddingCustomCategory ? 'Отмена' : '+ Своя'}
                     </button>
-                  )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
+
+                {isAddingCustomCategory && (
+                  <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl mb-3 space-y-2 animate-fade-in">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="🏷️"
+                        value={newCatIcon}
+                        onChange={(e) => setNewCatIcon(e.target.value)}
+                        aria-label="Эмодзи категории"
+                        className="w-10 h-9 text-center text-base bg-white border border-stone-200 rounded-lg focus:outline-none shrink-0"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Название категории..."
+                        value={newCatName}
+                        onChange={(e) => setNewCatName(e.target.value)}
+                        aria-label="Название новой категории"
+                        className="flex-1 h-9 text-xs px-3 bg-white border border-stone-200 rounded-lg focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCategory}
+                        aria-label="Сохранить категорию"
+                        className="w-9 h-9 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-stone-800 transition flex items-center justify-center shrink-0"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {txType === 'expense' && (
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <span className="text-stone-600">Корзина 50/30/20:</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setNewCatBucket('base')}
+                            className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
+                              newCatBucket === 'base' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
+                            }`}
+                          >
+                            🏠 База (50%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewCatBucket('wants')}
+                            className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
+                              newCatBucket === 'wants' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
+                            }`}
+                          >
+                            ☕ Хотелки (30%)
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-2">
+                  {activeCategories.map(c => (
+                    <div key={c.id} className="relative">
+                      <button
+                        type="button"
+                        disabled={isLockedType}
+                        onClick={() => setSelectedCategory(c.name)}
+                        className={`w-full h-10 px-2.5 rounded-xl flex items-center gap-2 text-left border transition ${
+                          selectedCategory === c.name
+                            ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                            : 'border-stone-200/80 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                        } ${isLockedType ? 'opacity-75 cursor-not-allowed' : ''}`}
+                      >
+                        <span className="text-sm shrink-0">{c.icon}</span>
+                        <span className="text-xs font-medium truncate">{c.name}</span>
+                      </button>
+                      {isManagingCategories && c.id.startsWith('cat_') && (
+                        <button
+                          type="button"
+                          onClick={(e) => onDeleteCustomCategory(e, c.id)}
+                          aria-label={`Удалить категорию ${c.name}`}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Комментарий — фиксированная высота h-10 */}
           <div>
             <input
               type="text"
-              placeholder="Комментарий по чеку (необязательно, например: ВкусВилл)"
+              placeholder={txType === 'transfer' ? 'Комментарий к переводу (например: В семейный резерв с ЗП)' : 'Комментарий по чеку (необязательно, например: ВкусВилл)'}
               value={txTitle}
               onChange={(e) => setTxTitle(e.target.value)}
               aria-label="Комментарий к операции"
@@ -500,9 +691,15 @@ export const TransactionModal = React.memo(function TransactionModal({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition active:scale-[0.99] shadow-sm inline-flex items-center justify-center tabular-nums"
+                  className={`flex-1 h-11 text-white rounded-xl font-semibold text-sm transition active:scale-[0.99] shadow-sm inline-flex items-center justify-center tabular-nums ${
+                    txType === 'transfer' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-stone-900 hover:bg-stone-800'
+                  }`}
                 >
-                  {isBatchReceiptMode ? `Записать за ${txDate.slice(8, 10)}.${txDate.slice(5, 7)}` : 'Записать'}
+                  {txType === 'transfer'
+                    ? 'Выполнить перевод'
+                    : isBatchReceiptMode
+                    ? `Записать за ${txDate.slice(8, 10)}.${txDate.slice(5, 7)}`
+                    : 'Записать'}
                 </button>
               </>
             )}

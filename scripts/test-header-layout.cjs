@@ -149,7 +149,7 @@ server.listen(PORT, async () => {
               plusBtnSquare: pRect && Math.abs(pRect.width - 40) <= 2 && Math.abs(pRect.height - 40) <= 2,
               plusBtnText: plusBtn ? plusBtn.innerText.trim() : null,
               navVisible: nRect && nRect.width > 300,
-              badge: document.querySelector('header')?.innerText.includes('v0.7.7.1')
+              badge: document.querySelector('header')?.innerText.includes('v0.8.0')
             });
           })()
         `

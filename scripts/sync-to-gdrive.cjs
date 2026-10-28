@@ -8,7 +8,8 @@ const versions = [
   'v0.7.6',
   'v0.7.7',
   'v0.7.7.1',
-  'v0.7.8'
+  'v0.7.8',
+  'v0.8.0'
 ];
 
 const basePath = 'c:/Users/zemichev/YandexDisk/side_projects';

@@ -4,8 +4,8 @@ const { execSync } = require('child_process');
 
 const srcDir = path.resolve(__dirname, '..');
 const targets = [
-  'c:/Users/zemichev/YandexDisk/side_projects/family-budget-v0.6.0',
-  'G:/My Drive/Проекты/Семейный бюджет v0.6.0'
+  'c:/Users/zemichev/YandexDisk/side_projects/family-budget-v0.8.0',
+  'G:/My Drive/Проекты/Семейный бюджет v0.8.0'
 ];
 
 const filesToCopy = [
@@ -57,11 +57,11 @@ targets.forEach(tgt => {
   console.log('Synced files to:', tgt);
 });
 
-// Update family-budget-v0.6.0.zip in local target folder and copy to Google Drive
+// Update family-budget-v0.8.0.zip in local target folder and copy to Google Drive
 const localTarget = targets[0];
 const gdriveTarget = targets[1];
-const localZipPath = path.join(localTarget, 'family-budget-v0.6.0.zip');
-const gdriveZipPath = path.join(gdriveTarget, 'family-budget-v0.6.0.zip');
+const localZipPath = path.join(localTarget, 'family-budget-v0.8.0.zip');
+const gdriveZipPath = path.join(gdriveTarget, 'family-budget-v0.8.0.zip');
 
 if (fs.existsSync(localZipPath)) {
   try { fs.unlinkSync(localZipPath); } catch (e) {}

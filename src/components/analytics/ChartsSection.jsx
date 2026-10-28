@@ -11,7 +11,20 @@ export const ChartsSection = React.memo(function ChartsSection({
   partnerComparisonData,
   userProfiles,
   daysInMonth,
+  safeLimitConfig,
 }) {
+  const paydaysInChart = React.useMemo(() => {
+    if (safeLimitConfig?.mode !== 'paydays' || !Array.isArray(safeLimitConfig?.paydays)) return [];
+    return Array.from(
+      new Set(
+        safeLimitConfig.paydays
+          .map(Number)
+          .filter(d => d >= 1 && d <= 31)
+          .map(d => Math.min(d, daysInMonth || 30))
+      )
+    ).sort((a, b) => a - b);
+  }, [safeLimitConfig, daysInMonth]);
+
   return (
     <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex flex-col justify-between">
       {/* Единая шапка карточки аналитики */}
@@ -24,7 +37,7 @@ export const ChartsSection = React.memo(function ChartsSection({
             <span>Финансовый радар и аналитика</span>
           </h2>
           <p className="text-xs text-stone-500 mt-0.5">
-            Потребительский темп без искажения копилками, баланс 50/30/20, динамика и вклад партнеров.
+            Потребительский темп без искажения копилками и переводами, баланс 50/30/20, динамика и вклад партнеров.
           </p>
         </div>
 
@@ -92,6 +105,12 @@ export const ChartsSection = React.memo(function ChartsSection({
                     <span className="w-3.5 h-1 bg-stone-900 inline-block rounded-full"></span>
                     <span>Потребительский факт: {burnDownData.actualUpToCurrent.toLocaleString('ru-RU')} ₽</span>
                   </span>
+                  {paydaysInChart.length > 0 && (
+                    <span className="flex items-center gap-1 text-amber-800 font-medium">
+                      <span className="w-2.5 h-0.5 border-t-2 border-dashed border-amber-500 inline-block"></span>
+                      <span>Дни ЗП: {paydaysInChart.join(' и ')}-е</span>
+                    </span>
+                  )}
                 </div>
 
                 <div className={`h-7 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 tabular-nums ${
@@ -118,6 +137,35 @@ export const ChartsSection = React.memo(function ChartsSection({
                   <line x1="40" y1="22" x2="460" y2="22" stroke="#e7e5e4" strokeWidth="1" strokeDasharray="3 3" />
                   <line x1="40" y1="92" x2="460" y2="92" stroke="#e7e5e4" strokeWidth="1" strokeDasharray="3 3" />
                   <line x1="40" y1="162" x2="460" y2="162" stroke="#d6d3d1" strokeWidth="1" />
+
+                  {/* Вертикальные отметки дней выплат ЗП / аванса */}
+                  {paydaysInChart.map(dayNum => {
+                    const px = burnDownData.getX(dayNum);
+                    return (
+                      <g key={`payday_${dayNum}`}>
+                        <line
+                          x1={px}
+                          y1="20"
+                          x2={px}
+                          y2="162"
+                          stroke="#f59e0b"
+                          strokeWidth="1"
+                          strokeDasharray="3 3"
+                          opacity="0.75"
+                        />
+                        <text
+                          x={px}
+                          y="16"
+                          fontSize="9"
+                          fontWeight="600"
+                          fill="#b45309"
+                          textAnchor="middle"
+                        >
+                          ЗП {dayNum}
+                        </text>
+                      </g>
+                    );
+                  })}
 
                   <polyline
                     fill="none"
@@ -157,10 +205,9 @@ export const ChartsSection = React.memo(function ChartsSection({
           )
         )}
 
-        {/* ГРАФИК 2: Светофор 50/30/20 (с единой сводной шкалой сверху для выравнивания высоты 232px) */}
+        {/* ГРАФИК 2: Светофор 50/30/20 */}
         {chartView === 'rule503020' && (
           <div className="flex-1 flex flex-col justify-between space-y-3">
-            {/* Верхняя композитная полоса баланса 50/30/20 */}
             <div className="p-3 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-stone-700">Фактическая пропорция распределения дохода</span>
@@ -187,7 +234,6 @@ export const ChartsSection = React.memo(function ChartsSection({
               </div>
             </div>
 
-            {/* 3 сбалансированные карточки одинаковой высоты */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
               <div className="p-4 rounded-xl bg-stone-50 border border-stone-200/80 flex flex-col justify-between">
                 <div className="flex items-center justify-between text-xs">
@@ -368,7 +414,6 @@ export const ChartsSection = React.memo(function ChartsSection({
             {partnerComparisonData ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  {/* Карточка Партнера 1 */}
                   <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
                       <div className="flex items-center gap-2">
@@ -408,7 +453,6 @@ export const ChartsSection = React.memo(function ChartsSection({
                     </div>
                   </div>
 
-                  {/* Карточка Партнера 2 */}
                   <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
                       <div className="flex items-center gap-2">
@@ -451,7 +495,7 @@ export const ChartsSection = React.memo(function ChartsSection({
 
                 <div className="p-3 bg-stone-100/80 rounded-xl text-stone-600 text-[11px] flex items-center justify-between">
                   <span>Общие семейные расходы за период: <b>{partnerComparisonData.sharedPool.totalExpense.toLocaleString('ru-RU')} ₽</b></span>
-                  <span className="text-stone-500">Раздельный учет без взаимных претензий</span>
+                  <span className="text-stone-500">Учитываются прямые траты и переводы в резерв</span>
                 </div>
               </div>
             ) : (

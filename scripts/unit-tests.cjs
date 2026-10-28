@@ -21,11 +21,12 @@ async function runTests() {
     calculateHistoricalForecast,
     calculatePartnerComparison,
     calculateHorizonDays,
+    calculateWalletBalancesWithTransfers,
   } = await import(financeCoreUrl);
 
   const { parseCsvText } = await import(csvUrl);
 
-  console.log('🧪 Running Family Budget v0.7.8 Core Unit Tests (Direct ES Module Imports)...');
+  console.log('🧪 Running Family Budget v0.8.0 Core Unit Tests (Direct ES Module Imports)...');
 
   // Test 1: Safe Daily Budget & Cash Gap Exposure (v0.7.0 Fix)
   {
@@ -214,7 +215,33 @@ async function runTests() {
     console.log('  ✅ Test 8 PASSED: Customizable Safe Limit Horizon (Paydays, Month, Fixed Days, End of Year)');
   }
 
-  console.log('🎉 All 8 test suites in unit-tests.cjs PASSED!');
+
+  // Test 9: Wallet Transfers (⇄) & Payday-Day Handling (v0.8.0)
+  {
+    const txs = [
+      { id: 't1', date: '2026-10-10', type: 'income', amount: 100000, account: 'personal', author: 'husband', title: 'Зарплата' },
+      { id: 't2', date: '2026-10-11', type: 'transfer', amount: 40000, fromWallet: 'husband', transferTo: 'shared', account: 'personal', author: 'husband', title: 'В резерв' },
+      { id: 't3', date: '2026-10-12', type: 'transfer', amount: 10000, fromWallet: 'husband', transferTo: 'wife', account: 'personal', author: 'husband', title: 'Жене на карту' },
+      { id: 't4', date: '2026-10-13', type: 'expense', amount: 5000, account: 'shared', author: 'wife', title: 'Продукты' },
+    ];
+    const balances = calculateWalletBalancesWithTransfers(txs, '2026-10-31');
+    assert.strictEqual(balances.husband.balance, 50000); // 100k - 40k - 10k
+    assert.strictEqual(balances.shared.balance, 35000);  // +40k - 5k
+    assert.strictEqual(balances.wife.balance, 10000);    // +10k
+
+    // Partner comparison credits transfer from husband -> shared into sharedContribution without inflating personal expenses
+    const comp = calculatePartnerComparison(txs, {}, '2026-10');
+    assert.strictEqual(comp.partner1.personalExpense, 0);
+    assert.strictEqual(comp.partner1.sharedContribution, 40000);
+
+    // Payday-day awareness
+    const onPaydayWait = calculateHorizonDays({ mode: 'paydays', paydays: [10, 25] }, new Date(2026, 9, 10), { waitForSalaryOnPayday: true, hasSalaryToday: false });
+    assert.strictEqual(onPaydayWait.days, 1);
+    assert.strictEqual(onPaydayWait.isPaydayToday, true);
+    console.log('  ✅ Test 9 PASSED: Wallet transfers (⇄), partner contribution credit & payday-day awareness');
+  }
+
+  console.log('🎉 All 9 test suites in unit-tests.cjs PASSED!');
 }
 
 runTests().catch((err) => {
