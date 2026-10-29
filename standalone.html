@@ -6601,13 +6601,13 @@
       const partnerWalletStats = partnerWalletKey === 'wife' ? stats.wifePersonal : stats.husbandPersonal;
 
       return (
-        <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-24 md:pb-12">
+        <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-28 lg:pb-12">
           {/* Верхний бар управления — все контролы выровнены по единой высоте h-10 (40px) */}
           <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-stone-200/80">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-3">
+            <div className="max-w-7xl mx-auto px-2 sm:px-6 h-16 flex items-center justify-between gap-1 sm:gap-3">
               {/* Левый блок: Бренд + фиксированный капсульный селектор периода */}
-              <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-                <div className="w-10 h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm text-base shrink-0">
+              <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm text-xs sm:text-base shrink-0">
                   💎
                 </div>
                 <div className="hidden sm:block lg:hidden 2xl:block min-w-0">
@@ -6624,15 +6624,15 @@
                   </p>
                 </div>
 
-                {/* Капсула выбора месяца с фиксированной шириной текста min-w-[112px] — исключает сдвиги шапки */}
-                <div className="h-10 px-1 bg-stone-100 border border-stone-200/80 rounded-xl flex items-center gap-0.5 shrink-0">
+                {/* Капсула выбора месяца с адаптивной шириной текста — исключает сдвиги шапки */}
+                <div className="h-9 sm:h-10 px-0.5 sm:px-1 bg-stone-100 border border-stone-200/80 rounded-xl flex items-center gap-0.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => stepMonth(-1)}
                     aria-label="Предыдущий месяц"
-                    className="w-7 h-8 flex items-center justify-center text-stone-600 hover:text-stone-900 hover:bg-white rounded-lg transition"
+                    className="w-6 sm:w-7 h-7 sm:h-8 flex items-center justify-center text-stone-600 hover:text-stone-900 hover:bg-white rounded-lg transition"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
                   <button
                     type="button"
@@ -6640,7 +6640,7 @@
                       setSelectedCalendarDate(null);
                       setSelectedMonth(selectedMonth === 'all' ? getCurrentMonthPrefix() : 'all');
                     }}
-                    className="min-w-[108px] sm:min-w-[116px] h-8 px-2 rounded-lg text-xs font-semibold text-stone-800 hover:bg-white transition text-center whitespace-nowrap tabular-nums"
+                    className="min-w-[76px] sm:min-w-[116px] h-7 sm:h-8 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs font-semibold text-stone-800 hover:bg-white transition text-center whitespace-nowrap tabular-nums"
                     title="Нажмите для переключения: Месяц / За всё время"
                   >
                     {formatMonthTitle(selectedMonth)}
@@ -6649,9 +6649,9 @@
                     type="button"
                     onClick={() => stepMonth(1)}
                     aria-label="Следующий месяц"
-                    className="w-7 h-8 flex items-center justify-center text-stone-600 hover:text-stone-900 hover:bg-white rounded-lg transition"
+                    className="w-6 sm:w-7 h-7 sm:h-8 flex items-center justify-center text-stone-600 hover:text-stone-900 hover:bg-white rounded-lg transition"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
                 </div>
               </div>
@@ -6696,15 +6696,15 @@
               </nav>
 
               {/* Правый блок: переключатель профилей и действия */}
-              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-10">
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                <div className="flex items-center gap-0.5 sm:gap-1 bg-stone-100 p-0.5 sm:p-1 rounded-xl border border-stone-200/70 h-9 sm:h-10">
                   <button
                     type="button"
                     onClick={() => {
                       setCurrentUser('husband');
                       setActiveWalletCard('husband');
                     }}
-                    className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    className={`h-7 sm:h-8 px-1.5 sm:px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 sm:gap-1.5 ${
                       currentUser === 'husband'
                         ? 'bg-white text-stone-900 shadow-sm'
                         : 'text-stone-600 hover:text-stone-900'
@@ -6723,7 +6723,7 @@
                       setCurrentUser('wife');
                       setActiveWalletCard('wife');
                     }}
-                    className={`h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    className={`h-7 sm:h-8 px-1.5 sm:px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 sm:gap-1.5 ${
                       currentUser === 'wife'
                         ? 'bg-white text-stone-900 shadow-sm'
                         : 'text-stone-600 hover:text-stone-900'
@@ -6740,7 +6740,7 @@
                     type="button"
                     onClick={() => setIsProfileModalOpen(true)}
                     aria-label="Настроить профили и владельца телефона"
-                    className="w-7 h-7 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-200/70 rounded-lg transition"
+                    className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-200/70 rounded-lg transition"
                     title="Настроить имена, эмодзи и телефон"
                   >
                     <User className="w-3.5 h-3.5" />
@@ -6751,7 +6751,7 @@
                   type="button"
                   onClick={() => setIsExportModalOpen(true)}
                   aria-label="Экспорт в Excel, CSV и резервная копия"
-                  className="h-10 px-2.5 sm:px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition border border-stone-200/80 flex items-center gap-1.5 shrink-0"
+                  className="h-9 w-9 sm:h-10 sm:w-auto px-0 sm:px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition border border-stone-200/80 flex items-center justify-center sm:gap-1.5 shrink-0"
                   title="Экспорт в XLSX / CSV / AI и резервная копия"
                 >
                   <FileSpreadsheet className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -6763,7 +6763,7 @@
                   onClick={() => openNewTransactionModal()}
                   aria-label="Записать операцию"
                   title="Записать новую операцию"
-                  className="w-10 h-10 rounded-xl bg-stone-900 text-white hover:bg-stone-800 transition shadow-sm flex items-center justify-center shrink-0"
+                  className="hidden sm:flex w-10 h-10 rounded-xl bg-stone-900 text-white hover:bg-stone-800 transition shadow-sm items-center justify-center shrink-0"
                 >
                   <Plus className="w-5 h-5 shrink-0" />
                 </button>
@@ -8169,10 +8169,10 @@
             </div>
           )}
 
-          {/* Нижний навигационный бар для мобильных — жесткая 5-колоночная сетка grid-cols-5 h-16 */}
+          {/* Нижний навигационный бар для мобильных — жесткая 5-колоночная сетка grid-cols-5 с поддержкой safe area iOS */}
           <nav
             aria-label="Мобильная навигация"
-            className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200 px-2 h-16 grid grid-cols-5 items-center lg:hidden"
+            className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200 px-2 h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] grid grid-cols-5 items-center lg:hidden"
           >
             <button
               type="button"
