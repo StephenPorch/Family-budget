@@ -26,7 +26,7 @@ async function runTests() {
 
   const { parseCsvText } = await import(csvUrl);
 
-  console.log('🧪 Running Family Budget v0.8.0 Core Unit Tests (Direct ES Module Imports)...');
+  console.log('🧪 Running Family Budget v0.8.1 Core Unit Tests (Direct ES Module Imports)...');
 
   // Test 1: Safe Daily Budget & Cash Gap Exposure (v0.7.0 Fix)
   {

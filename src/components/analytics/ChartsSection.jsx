@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart3, Clock } from 'lucide-react';
+import { BarChart3, Clock, Users } from 'lucide-react';
 
 export const ChartsSection = React.memo(function ChartsSection({
   chartView,
@@ -77,7 +77,7 @@ export const ChartsSection = React.memo(function ChartsSection({
               chartView === 'partners' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <span>👥</span>
+            <Users className="w-3.5 h-3.5 shrink-0" />
             <span>Партнеры</span>
           </button>
         </div>

@@ -12,7 +12,7 @@ const versions = [
   'v0.8.0'
 ];
 
-const basePath = 'c:/Users/zemichev/YandexDisk/side_projects';
+const basePath = path.resolve(__dirname, '../..');
 const gdriveBase = 'G:/My Drive/Проекты';
 
 function copyFolderRecursive(source, target) {

@@ -80,7 +80,7 @@ const standaloneHeader = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный Бюджет v0.8.0 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.8.1 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -142,6 +142,8 @@ const standaloneHeader = `<!DOCTYPE html>
     const AlertTriangle = createSvgIcon(<><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></>);
     const AlertCircle = createSvgIcon(<><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></>);
     const ArrowRightLeft = createSvgIcon(<><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></>);
+    const CreditCard = createSvgIcon(<><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></>);
+    const Users = createSvgIcon(<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>);
 `;
 
 const standaloneFooter = `
@@ -159,4 +161,4 @@ const bundledStandaloneBody = processedModulesForStandalone
 
 const finalStandalone = `${standaloneHeader}\n${bundledStandaloneBody}\n${standaloneFooter}`;
 fs.writeFileSync(standalonePath, finalStandalone, 'utf8');
-console.log('standalone.html v0.8.0 generated successfully! Length:', finalStandalone.length);
+console.log('standalone.html v0.8.1 generated successfully! Length:', finalStandalone.length);

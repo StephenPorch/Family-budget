@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Edit3, X, Lock, Calendar, Pin, Check, ArrowRightLeft } from 'lucide-react';
+import { Edit3, X, Lock, Calendar, Pin, Check, ArrowRightLeft, Users } from 'lucide-react';
 import { getLocalDateString, getOffsetDateString } from '../../utils/dateUtils.js';
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from '../../utils/storage.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
@@ -210,6 +210,9 @@ export const TransactionModal = React.memo(function TransactionModal({
         ref={modalRef}
         className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[94vh] overflow-y-auto"
       >
+        {/* Мобильная ручка шторки (Grabber handle) по гайдам stageshow / iOS */}
+        <div className="w-10 h-1 rounded-full bg-stone-300 mx-auto mb-3 sm:hidden shrink-0" />
+
         <div className="flex items-center justify-between pb-3 border-b border-stone-100">
           <div className="flex items-center gap-2.5">
             <span className="w-8 h-8 rounded-xl bg-stone-100 text-stone-700 flex items-center justify-center shrink-0">
@@ -384,7 +387,7 @@ export const TransactionModal = React.memo(function TransactionModal({
                 </span>
               </div>
 
-              {/* Быстрые пресеты перевода */}
+              {/* Быстрые пресеты перевода — комфортный инсет px-3 (12px) */}
               <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
@@ -392,9 +395,10 @@ export const TransactionModal = React.memo(function TransactionModal({
                     setFromWalletKey(currentUser === 'wife' ? 'wife' : 'husband');
                     setTransferTo('shared');
                   }}
-                  className="h-7 px-2 rounded-lg bg-white border border-indigo-200 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate"
+                  className="h-8 px-3 rounded-lg bg-white border border-indigo-200 text-xs font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate flex items-center justify-center gap-1"
                 >
-                  В резерв → 👥
+                  <Users className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+                  <span>В резерв</span>
                 </button>
                 <button
                   type="button"
@@ -404,7 +408,7 @@ export const TransactionModal = React.memo(function TransactionModal({
                     setFromWalletKey(me);
                     setTransferTo(other);
                   }}
-                  className="h-7 px-2 rounded-lg bg-white border border-indigo-200 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate"
+                  className="h-8 px-3 rounded-lg bg-white border border-indigo-200 text-xs font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate flex items-center justify-center"
                 >
                   Партнеру →
                 </button>
@@ -414,9 +418,10 @@ export const TransactionModal = React.memo(function TransactionModal({
                     setFromWalletKey('shared');
                     setTransferTo(currentUser === 'wife' ? 'wife' : 'husband');
                   }}
-                  className="h-7 px-2 rounded-lg bg-white border border-indigo-200 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate"
+                  className="h-8 px-3 rounded-lg bg-white border border-indigo-200 text-xs font-semibold text-indigo-900 hover:bg-indigo-100/60 transition truncate flex items-center justify-center gap-1"
                 >
-                  Из резерва ←
+                  <Users className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+                  <span>Из резерва</span>
                 </button>
               </div>
 
@@ -426,21 +431,22 @@ export const TransactionModal = React.memo(function TransactionModal({
                 </label>
                 <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-xl border border-stone-200/80 h-10">
                   {[
-                    { key: 'husband', label: `${p1Emoji} ${p1Name}` },
-                    { key: 'wife', label: `${p2Emoji} ${p2Name}` },
-                    { key: 'shared', label: '👥 Общий котел' },
+                    { key: 'husband', label: p1Name, emoji: p1Emoji },
+                    { key: 'wife', label: p2Name, emoji: p2Emoji },
+                    { key: 'shared', label: 'Общий котел', isShared: true },
                   ].map(w => (
                     <button
                       key={w.key}
                       type="button"
                       onClick={() => setFromWalletKey(w.key)}
-                      className={`h-8 px-1.5 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                      className={`h-8 px-1.5 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
                         currentFromWallet === w.key
                           ? 'bg-stone-900 text-white shadow-sm'
                           : 'text-stone-600 hover:text-stone-900'
                       }`}
                     >
-                      {w.label}
+                      {w.isShared ? <Users className="w-3.5 h-3.5 shrink-0" /> : <span>{w.emoji}</span>}
+                      <span className="truncate">{w.label}</span>
                     </button>
                   ))}
                 </div>
@@ -452,16 +458,16 @@ export const TransactionModal = React.memo(function TransactionModal({
                 </label>
                 <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-xl border border-stone-200/80 h-10">
                   {[
-                    { key: 'shared', label: '👥 Общий котел' },
-                    { key: 'husband', label: `${p1Emoji} ${p1Name}` },
-                    { key: 'wife', label: `${p2Emoji} ${p2Name}` },
+                    { key: 'shared', label: 'Общий котел', isShared: true },
+                    { key: 'husband', label: p1Name, emoji: p1Emoji },
+                    { key: 'wife', label: p2Name, emoji: p2Emoji },
                   ].map(w => (
                     <button
                       key={w.key}
                       type="button"
                       disabled={currentFromWallet === w.key}
                       onClick={() => setToWalletKey(w.key)}
-                      className={`h-8 px-1.5 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                      className={`h-8 px-1.5 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
                         transferTo === w.key
                           ? 'bg-indigo-600 text-white shadow-sm'
                           : currentFromWallet === w.key
@@ -469,7 +475,8 @@ export const TransactionModal = React.memo(function TransactionModal({
                           : 'text-stone-600 hover:text-stone-900'
                       }`}
                     >
-                      {w.label}
+                      {w.isShared ? <Users className="w-3.5 h-3.5 shrink-0" /> : <span>{w.emoji}</span>}
+                      <span className="truncate">{w.label}</span>
                     </button>
                   ))}
                 </div>
@@ -489,13 +496,14 @@ export const TransactionModal = React.memo(function TransactionModal({
                       setSelectedAccount('shared');
                       setTxAuthor(currentUser);
                     }}
-                    className={`h-8 px-1 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center ${
+                    className={`h-8 px-2 text-xs font-semibold rounded-lg transition truncate flex items-center justify-center gap-1 ${
                       selectedAccount === 'shared'
                         ? 'bg-stone-900 text-white shadow-sm'
                         : 'text-stone-600 hover:text-stone-900'
                     }`}
                   >
-                    👥 Общий котел
+                    <Users className="w-3.5 h-3.5 shrink-0" />
+                    <span>Общий котел</span>
                   </button>
 
                   <button

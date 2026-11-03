@@ -76,13 +76,13 @@ export const ReceiptCalendar = React.memo(function ReceiptCalendar({
             >
               <span className="text-xs font-bold leading-none">{cell.day}</span>
               {cell.count > 0 ? (
-                <span className={`text-[10px] font-semibold tracking-tight leading-none max-w-full truncate ${
+                <span className={`text-[11px] font-semibold tracking-tight leading-none max-w-full truncate ${
                   isSelected ? 'text-amber-300' : cell.expense > 0 ? 'text-stone-700' : 'text-emerald-700'
                 }`}>
                   {compactSum}
                 </span>
               ) : (
-                <span className="text-[10px] text-stone-300 leading-none">—</span>
+                <span className="text-[11px] text-stone-300 leading-none">—</span>
               )}
             </button>
           );

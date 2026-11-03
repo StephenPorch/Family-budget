@@ -4,7 +4,7 @@ const { execSync } = require('child_process');
 
 const srcDir = path.resolve(__dirname, '..');
 const targets = [
-  'c:/Users/zemichev/YandexDisk/side_projects/family-budget-v0.8.0',
+  path.resolve(__dirname, '../../family-budget-v0.8.0'),
   'G:/My Drive/Проекты/Семейный бюджет v0.8.0'
 ];
 

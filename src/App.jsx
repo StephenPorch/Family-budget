@@ -4,7 +4,8 @@ import {
   Sparkles, ChevronRight, ChevronLeft, Search, Trash2,
   SlidersHorizontal, RotateCcw, Edit3, Check, LayoutGrid,
   ListOrdered, Target, ArrowUpRight, ShieldCheck,
-  CheckCircle2, FileSpreadsheet, Bell, TrendingUp, AlertCircle, ArrowRightLeft
+  CheckCircle2, FileSpreadsheet, Bell, TrendingUp, AlertCircle, ArrowRightLeft,
+  CreditCard, Users, BarChart3
 } from 'lucide-react';
 
 import {
@@ -2499,7 +2500,7 @@ export default function FamilyBudgetApp() {
     const getShortWalletLabel = (wKey) => {
       if (wKey === 'husband') return `${safeProfiles.husband?.emoji || '🧔🏻‍♂️'} ${safeProfiles.husband?.name || 'Партнер 1'}`;
       if (wKey === 'wife') return `${safeProfiles.wife?.emoji || '👩🏼'} ${safeProfiles.wife?.name || 'Партнер 2'}`;
-      return '👥 Общий котел';
+      return 'Общий котел';
     };
 
     return (
@@ -2524,23 +2525,27 @@ export default function FamilyBudgetApp() {
             <div className="text-sm font-medium text-stone-900 flex items-center gap-1.5 min-w-0">
               <span className="truncate">{tx.title}</span>
               {tx.goalId && (
-                <span className="h-5 px-1.5 rounded-md bg-violet-50 text-violet-700 text-[10px] font-semibold inline-flex items-center shrink-0">
-                  🎯 Копилка
+                <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
+                  <Target className="w-3 h-3 text-violet-600 shrink-0" />
+                  <span>Копилка</span>
                 </span>
               )}
               {tx.debtId && (
-                <span className="h-5 px-1.5 rounded-md bg-rose-50 text-rose-700 text-[10px] font-semibold inline-flex items-center shrink-0">
-                  💳 Долг
+                <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
+                  <CreditCard className="w-3 h-3 text-rose-600 shrink-0" />
+                  <span>Долг</span>
                 </span>
               )}
               {tx.recurringId && (
-                <span className="h-5 px-1.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-semibold inline-flex items-center shrink-0">
-                  🛡️ Постоянный
+                <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
+                  <ShieldCheck className="w-3 h-3 text-blue-600 shrink-0" />
+                  <span>Постоянный</span>
                 </span>
               )}
               {isTransfer && (
-                <span className="h-5 px-1.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-semibold inline-flex items-center shrink-0">
-                  ⇄ Перевод
+                <span className="h-5 px-1.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
+                  <ArrowRightLeft className="w-3 h-3 text-indigo-600 shrink-0" />
+                  <span>Перевод</span>
                 </span>
               )}
             </div>
@@ -2592,21 +2597,22 @@ export default function FamilyBudgetApp() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-28 lg:pb-12">
-      {/* Верхний бар управления — все контролы выровнены по единой высоте h-10 (40px) */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-stone-200/80">
-        <div className="max-w-7xl mx-auto px-2 sm:px-6 h-16 flex items-center justify-between gap-1 sm:gap-3">
+      {/* Верхний бар управления — с поддержкой safe area iOS (stageshow standard) */}
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-stone-200/80 pt-[env(safe-area-inset-top,0px)]">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-1.5 sm:gap-3">
           {/* Левый блок: Бренд + фиксированный капсульный селектор периода */}
           <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm text-xs sm:text-base shrink-0">
-              💎
+            {/* Лаконичный векторный знак кошелька (подзадача: замена на авторский SVG-логотип) */}
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm shrink-0" title="Семейный Бюджет">
+              <Wallet className="w-4 h-4 sm:w-5 sm:h-5 text-white shrink-0" />
             </div>
             <div className="hidden sm:block lg:hidden 2xl:block min-w-0">
               <div className="flex items-center gap-1.5">
                 <h1 className="text-sm font-bold tracking-tight text-stone-900 truncate">
                   Семейный Бюджет
                 </h1>
-                <span className="h-5 px-1.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-semibold inline-flex items-center shrink-0">
-                  v0.8.0
+                <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/80 text-[11px] font-mono font-medium inline-flex items-center shrink-0">
+                  v0.8.1
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
@@ -2822,7 +2828,7 @@ export default function FamilyBudgetApp() {
                 }`}
               >
                 <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                  <span className="text-xs font-semibold text-stone-600 flex items-center gap-1.5 truncate">
                     <span>{myProfile.emoji}</span>
                     <span className="truncate">{myProfile.name}</span>
                   </span>
@@ -2835,7 +2841,8 @@ export default function FamilyBudgetApp() {
                   <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
                     myWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
                   }`}>
-                    {myWalletStats.balance.toLocaleString('ru-RU')} ₽
+                    {myWalletStats.balance.toLocaleString('ru-RU')}
+                    <span className="text-xs font-normal text-stone-400 ml-1">₽</span>
                   </div>
                   <div className={`text-xs mt-1.5 truncate ${
                     myWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
@@ -2863,7 +2870,7 @@ export default function FamilyBudgetApp() {
                 }`}
               >
                 <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
+                  <span className="text-xs font-semibold text-stone-600 flex items-center gap-1.5 truncate">
                     <span>{partnerProfile.emoji}</span>
                     <span className="truncate">{partnerProfile.name}</span>
                   </span>
@@ -2876,7 +2883,8 @@ export default function FamilyBudgetApp() {
                   <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
                     partnerWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
                   }`}>
-                    {partnerWalletStats.balance.toLocaleString('ru-RU')} ₽
+                    {partnerWalletStats.balance.toLocaleString('ru-RU')}
+                    <span className="text-xs font-normal text-stone-400 ml-1">₽</span>
                   </div>
                   <div className={`text-xs mt-1.5 truncate ${
                     partnerWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
@@ -2904,8 +2912,8 @@ export default function FamilyBudgetApp() {
                 }`}
               >
                 <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="uppercase tracking-wider font-semibold text-xs flex items-center gap-1.5 truncate">
-                    <span>👥</span>
+                  <span className="text-xs font-semibold text-stone-600 flex items-center gap-1.5 truncate">
+                    <Users className="w-3.5 h-3.5 text-stone-600 shrink-0" />
                     <span className="truncate">Семейный резерв</span>
                   </span>
                   <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
@@ -2917,7 +2925,8 @@ export default function FamilyBudgetApp() {
                   <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
                     stats.shared.balance < 0 ? 'text-rose-600' : 'text-stone-900'
                   }`}>
-                    {stats.shared.balance.toLocaleString('ru-RU')} ₽
+                    {stats.shared.balance.toLocaleString('ru-RU')}
+                    <span className="text-xs font-normal text-stone-400 ml-1">₽</span>
                   </div>
                   <div className={`text-xs mt-1.5 truncate ${
                     stats.shared.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
@@ -2932,7 +2941,7 @@ export default function FamilyBudgetApp() {
                 </div>
               </div>
 
-              {/* 4. Безопасный лимит в день / Индикатор кассового разрыва */}
+              {/* 4. Безопасный лимит в день / Индикатор кассового разрыва (Доминирующий якорь) */}
               <div
                 role="button"
                 tabIndex={0}
@@ -2947,7 +2956,7 @@ export default function FamilyBudgetApp() {
               >
                 <div className="h-6 flex items-center justify-between gap-1 text-stone-200">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="uppercase tracking-wider font-semibold text-xs truncate">
+                    <span className="text-xs font-semibold text-stone-200 truncate">
                       {stats.hasCashGap ? 'Кассовый разрыв' : stats.isPastMonth ? 'Итог месяца' : 'Безопасный лимит'}
                     </span>
                     <button
@@ -2965,15 +2974,16 @@ export default function FamilyBudgetApp() {
                   {stats.hasCashGap ? (
                     <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
                   ) : (
-                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                    <TrendingUp className="w-4 h-4 text-amber-400 shrink-0" />
                   )}
                 </div>
 
                 <div className="my-auto">
                   {stats.hasCashGap ? (
                     <>
-                      <div className="text-xl sm:text-2xl font-bold tracking-tight text-rose-300 tabular-nums leading-none truncate">
-                        −{stats.cashGapAmount.toLocaleString('ru-RU')} ₽
+                      <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-rose-300 tabular-nums leading-none truncate">
+                        −{stats.cashGapAmount.toLocaleString('ru-RU')}
+                        <span className="text-xs font-normal text-rose-300/80 ml-1">₽</span>
                       </div>
                       <div className="text-xs text-rose-200 mt-1.5 truncate">
                         Не хватает на обязательные счета
@@ -2981,8 +2991,9 @@ export default function FamilyBudgetApp() {
                     </>
                   ) : (
                     <>
-                      <div className="text-xl sm:text-2xl font-bold tracking-tight text-amber-300 tabular-nums leading-none truncate">
-                        {stats.dailyAvailable.toLocaleString('ru-RU')} {stats.isPastMonth ? '₽' : '₽/день'}
+                      <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-amber-300 tabular-nums leading-none truncate">
+                        {stats.dailyAvailable.toLocaleString('ru-RU')}
+                        <span className="text-xs sm:text-sm font-semibold text-amber-300/80 ml-1">{stats.isPastMonth ? '₽' : '₽/день'}</span>
                       </div>
                       <div className="text-xs text-stone-300 mt-1.5 truncate tabular-nums">
                         {stats.isPastMonth
@@ -3009,8 +3020,9 @@ export default function FamilyBudgetApp() {
                       <span className="truncate">Счета закрыты</span>
                     </span>
                   )}
-                  <span className="text-stone-300 font-semibold shrink-0" title="Отложено в копилки и погашено кредитов">
-                    🎯 {stats.activeSavedAndDebtPaid.toLocaleString('ru-RU')} ₽
+                  <span className="text-stone-300 font-semibold shrink-0 flex items-center gap-1" title="Отложено в копилки и погашено кредитов">
+                    <Target className="w-3.5 h-3.5 text-stone-300 shrink-0" />
+                    <span>{stats.activeSavedAndDebtPaid.toLocaleString('ru-RU')} ₽</span>
                   </span>
                 </div>
               </div>
@@ -3038,7 +3050,7 @@ export default function FamilyBudgetApp() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 mb-3.5 border-b border-stone-100">
                     <div>
                       <h2 className="text-sm font-semibold text-stone-900">
-                        Структура расходов ({activeWalletCard === 'shared' ? 'Семейный резерв 👥' : activeWalletCard === myWalletKey ? `${myProfile.name} ${myProfile.emoji}` : `${partnerProfile.name} ${partnerProfile.emoji}`})
+                        Структура расходов ({activeWalletCard === 'shared' ? 'Семейный резерв' : activeWalletCard === myWalletKey ? `${myProfile.name} ${myProfile.emoji}` : `${partnerProfile.name} ${partnerProfile.emoji}`})
                       </h2>
                       <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
                         Потребительские траты: <strong className="text-stone-800">{stats.totalSelectedExpense.toLocaleString('ru-RU')} ₽</strong>
@@ -3673,8 +3685,8 @@ export default function FamilyBudgetApp() {
                       : '✓ Все обязательные счета оплачены'}
                   </div>
                 </div>
-                <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center text-xl shrink-0">
-                  🛡️
+                <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0" />
                 </div>
               </div>
 
@@ -3688,8 +3700,8 @@ export default function FamilyBudgetApp() {
                     Факт: {expenseForecastData.totalCurrentActual.toLocaleString('ru-RU')} ₽ ({expenseForecastData.pastMonthsCount} мес. базы)
                   </div>
                 </div>
-                <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-xl shrink-0">
-                  📊
+                <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+                  <BarChart3 className="w-5 h-5 text-emerald-700 shrink-0" />
                 </div>
               </div>
 
@@ -3703,8 +3715,8 @@ export default function FamilyBudgetApp() {
                     Погашено {Math.max(0, stats.totalDebtInitial - stats.totalDebtRemaining).toLocaleString('ru-RU')} ₽ из {stats.totalDebtInitial.toLocaleString('ru-RU')} ₽
                   </div>
                 </div>
-                <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center text-xl shrink-0">
-                  💳
+                <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center shrink-0">
+                  <CreditCard className="w-5 h-5 text-rose-600 shrink-0" />
                 </div>
               </div>
             </div>
