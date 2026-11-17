@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Семейный Бюджет v0.8.2 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.8.5 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -67,6 +67,10 @@
     const ArrowRightLeft = createSvgIcon(<><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></>);
     const CreditCard = createSvgIcon(<><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></>);
     const Users = createSvgIcon(<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>);
+    const RefreshCw = createSvgIcon(<><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></>);
+    const Cloud = createSvgIcon(<><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></>);
+    const QrCode = createSvgIcon(<><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></>);
+    const Share2 = createSvgIcon(<><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></>);
 
     // ============================================================================
     // MODULE: src/utils/dateUtils.js
@@ -202,7 +206,7 @@
     // ============================================================================
     // MODULE: src/utils/storage.js
     // ============================================================================
-    const APP_VERSION = '0.8.2';
+    const APP_VERSION = '0.8.5';
 
     const hasStoredKey = (key) => {
       try {
@@ -1753,6 +1757,1352 @@
     };
 
     // ============================================================================
+    // MODULE: src/utils/deltaSync.js
+    // ============================================================================
+    // Движок дельта-синхронизации LWW (Last-Write-Wins) с поддержкой soft-delete tombstones (FB-10)
+    const SYNC_ENTITY_KEYS = [
+      'transactions',
+      'goals',
+      'recurringPayments',
+      'debts',
+      'customCategories',
+    ];
+
+    const DEFAULT_FALLBACK_UPDATED_AT = '2026-01-01T00:00:00.000Z';
+    const TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+    const toValidIso = (raw) => {
+      if (!raw || typeof raw !== 'string') return null;
+      const ms = Date.parse(raw);
+      return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+    };
+
+    const getDeterministicFallbackTimestamp = (item) => {
+      const existing = toValidIso(item?.updatedAt);
+      if (existing) return existing;
+      if (item?.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date)) {
+        return `${item.date}T00:00:00.000Z`;
+      }
+      return DEFAULT_FALLBACK_UPDATED_AT;
+    };
+
+    const ensureItemTimestamp = (item, fallbackIso = null) => {
+      if (!item || typeof item !== 'object') return item;
+      const ts = toValidIso(item.updatedAt) || getDeterministicFallbackTimestamp(item) || fallbackIso || DEFAULT_FALLBACK_UPDATED_AT;
+      if (item.updatedAt === ts) return item;
+      return { ...item, updatedAt: ts };
+    };
+
+    const ensureCollectionTimestamps = (list = []) => {
+      if (!Array.isArray(list)) return [];
+      return list.map(item => ensureItemTimestamp(item));
+    };
+
+    const touchItemTimestamp = (item, nowIso = new Date().toISOString()) => {
+      if (!item || typeof item !== 'object') return item;
+      return { ...item, updatedAt: nowIso };
+    };
+
+    const pruneOldTombstones = (tombstones = [], nowMs = Date.now()) => {
+      if (!Array.isArray(tombstones)) return [];
+      const cutoff = nowMs - TOMBSTONE_TTL_MS;
+      const dedup = new Map();
+
+      for (const t of tombstones) {
+        if (!t || !t.entityType || t.id === undefined || t.id === null) continue;
+        const iso = toValidIso(t.deletedAt);
+        if (!iso) continue;
+        const ms = Date.parse(iso);
+        if (ms < cutoff) continue;
+        const key = `${t.entityType}:${String(t.id)}`;
+        const prev = dedup.get(key);
+        if (!prev || Date.parse(prev.deletedAt) < ms) {
+          dedup.set(key, { entityType: t.entityType, id: String(t.id), deletedAt: iso });
+        }
+      }
+      return Array.from(dedup.values());
+    };
+
+    const recordDeletionTombstone = (
+      tombstones = [],
+      entityType,
+      id,
+      deletedAt = new Date().toISOString()
+    ) => {
+      if (!entityType || id === undefined || id === null) return pruneOldTombstones(tombstones);
+      const strId = String(id);
+      const filtered = (Array.isArray(tombstones) ? tombstones : []).filter(
+        t => !(t && t.entityType === entityType && String(t.id) === strId)
+      );
+      filtered.push({ entityType, id: strId, deletedAt });
+      return pruneOldTombstones(filtered);
+    };
+
+    const removeDeletionTombstone = (tombstones = [], entityType, id) => {
+      if (!entityType || id === undefined || id === null) return Array.isArray(tombstones) ? tombstones : [];
+      const strId = String(id);
+      return (Array.isArray(tombstones) ? tombstones : []).filter(
+        t => !(t && t.entityType === entityType && String(t.id) === strId)
+      );
+    };
+
+    const parseTsMs = (iso) => {
+      if (!iso) return 0;
+      const ms = Date.parse(iso);
+      return Number.isFinite(ms) ? ms : 0;
+    };
+
+    // LWW-слияние одной коллекции с учетом tombstones
+    const mergeEntityCollection = (
+      localActive = [],
+      localTombstones = [],
+      remoteActive = [],
+      remoteTombstones = [],
+      entityType = 'transactions'
+    ) => {
+      const localMap = new Map();
+      const remoteMap = new Map();
+      const localTombMap = new Map();
+      const remoteTombMap = new Map();
+      const allIds = new Set();
+
+      for (const item of Array.isArray(localActive) ? localActive : []) {
+        if (!item || item.id === undefined || item.id === null) continue;
+        const sid = String(item.id);
+        const norm = ensureItemTimestamp(item);
+        localMap.set(sid, norm);
+        allIds.add(sid);
+      }
+
+      for (const item of Array.isArray(remoteActive) ? remoteActive : []) {
+        if (!item || item.id === undefined || item.id === null) continue;
+        const sid = String(item.id);
+        const norm = ensureItemTimestamp(item);
+        remoteMap.set(sid, norm);
+        allIds.add(sid);
+      }
+
+      for (const t of Array.isArray(localTombstones) ? localTombstones : []) {
+        if (!t || t.entityType !== entityType || t.id === undefined || t.id === null) continue;
+        const sid = String(t.id);
+        localTombMap.set(sid, t);
+        allIds.add(sid);
+      }
+
+      for (const t of Array.isArray(remoteTombstones) ? remoteTombstones : []) {
+        if (!t || t.entityType !== entityType || t.id === undefined || t.id === null) continue;
+        const sid = String(t.id);
+        remoteTombMap.set(sid, t);
+        allIds.add(sid);
+      }
+
+      const mergedActive = [];
+      const mergedTombstones = [];
+      let added = 0;
+      let updated = 0;
+      let deleted = 0;
+
+      for (const sid of allIds) {
+        const la = localMap.get(sid);
+        const ra = remoteMap.get(sid);
+        const lt = localTombMap.get(sid);
+        const rt = remoteTombMap.get(sid);
+
+        const laTs = la ? parseTsMs(la.updatedAt) : -1;
+        const raTs = ra ? parseTsMs(ra.updatedAt) : -1;
+        const ltTs = lt ? parseTsMs(lt.deletedAt) : -1;
+        const rtTs = rt ? parseTsMs(rt.deletedAt) : -1;
+
+        let bestActive = null;
+        let bestActiveTs = -1;
+        if (la && ra) {
+          if (raTs > laTs) {
+            bestActive = ra;
+            bestActiveTs = raTs;
+          } else {
+            bestActive = la;
+            bestActiveTs = laTs;
+          }
+        } else if (la) {
+          bestActive = la;
+          bestActiveTs = laTs;
+        } else if (ra) {
+          bestActive = ra;
+          bestActiveTs = raTs;
+        }
+
+        let bestTomb = null;
+        let bestTombTs = -1;
+        if (lt && rt) {
+          if (rtTs >= ltTs) {
+            bestTomb = rt;
+            bestTombTs = rtTs;
+          } else {
+            bestTomb = lt;
+            bestTombTs = ltTs;
+          }
+        } else if (lt) {
+          bestTomb = lt;
+          bestTombTs = ltTs;
+        } else if (rt) {
+          bestTomb = rt;
+          bestTombTs = rtTs;
+        }
+
+        // При равенстве таймстампов удаление побеждает правку для защиты от «зомби»
+        if (bestTomb && bestTombTs >= bestActiveTs) {
+          mergedTombstones.push(bestTomb);
+          if (la) deleted++;
+        } else if (bestActive) {
+          mergedActive.push(bestActive);
+          if (!la && ra) {
+            added++;
+          } else if (la && bestActive === ra && JSON.stringify(la) !== JSON.stringify(ra)) {
+            updated++;
+          }
+        }
+      }
+
+      if (entityType === 'transactions') {
+        mergedActive.sort((a, b) => {
+          const cmp = (b.date || '').localeCompare(a.date || '');
+          if (cmp !== 0) return cmp;
+          return String(b.id || '').localeCompare(String(a.id || ''));
+        });
+      }
+
+      return {
+        active: mergedActive,
+        tombstones: mergedTombstones,
+        stats: { added, updated, deleted },
+      };
+    };
+
+    // Сборка инкрементальной дельты (или полного снимка при sinceIso === null)
+    const buildSyncDelta = (state = {}, sinceIso = null, nowIso = new Date().toISOString()) => {
+      const sinceMs = sinceIso ? parseTsMs(sinceIso) : -1;
+      const entities = {};
+
+      for (const key of SYNC_ENTITY_KEYS) {
+        const list = ensureCollectionTimestamps(state[key] || []);
+        entities[key] = sinceMs >= 0
+          ? list.filter(item => parseTsMs(item.updatedAt) > sinceMs)
+          : list;
+      }
+
+      const allTombstones = pruneOldTombstones(state.syncTombstones || []);
+      const tombstones = sinceMs >= 0
+        ? allTombstones.filter(t => parseTsMs(t.deletedAt) > sinceMs)
+        : allTombstones;
+
+      const meta = state.settingsSyncMeta || {};
+      const settings = {};
+      const settingsMeta = {};
+
+      const profTs = meta.userProfiles || DEFAULT_FALLBACK_UPDATED_AT;
+      if (state.userProfiles && (sinceMs < 0 || parseTsMs(profTs) > sinceMs)) {
+        settings.userProfiles = state.userProfiles;
+        settingsMeta.userProfiles = profTs;
+      }
+
+      const limitCfgTs = meta.safeLimitConfig || DEFAULT_FALLBACK_UPDATED_AT;
+      if (state.safeLimitConfig && (sinceMs < 0 || parseTsMs(limitCfgTs) > sinceMs)) {
+        settings.safeLimitConfig = state.safeLimitConfig;
+        settingsMeta.safeLimitConfig = limitCfgTs;
+      }
+
+      const localLimits = state.plannedCategoryLimits || {};
+      const localLimitsMeta = meta.plannedCategoryLimits || {};
+      const allLimitCats = new Set([...Object.keys(localLimits), ...Object.keys(localLimitsMeta)]);
+      const deltaLimits = {};
+      const deltaLimitsMeta = {};
+      let hasLimitsDelta = false;
+
+      for (const cat of allLimitCats) {
+        const entryMeta = localLimitsMeta[cat] || { updatedAt: DEFAULT_FALLBACK_UPDATED_AT, deleted: false };
+        const ts = entryMeta.updatedAt || DEFAULT_FALLBACK_UPDATED_AT;
+        if (sinceMs < 0 || parseTsMs(ts) > sinceMs) {
+          hasLimitsDelta = true;
+          deltaLimitsMeta[cat] = entryMeta;
+          if (!entryMeta.deleted && localLimits[cat] !== undefined) {
+            deltaLimits[cat] = localLimits[cat];
+          }
+        }
+      }
+
+      if (hasLimitsDelta) {
+        settings.plannedCategoryLimits = deltaLimits;
+        settingsMeta.plannedCategoryLimits = deltaLimitsMeta;
+      }
+
+      return {
+        v: 1,
+        kind: 'fb_sync_delta',
+        generatedAt: nowIso,
+        since: sinceIso || null,
+        entities,
+        tombstones,
+        settings,
+        settingsMeta,
+      };
+    };
+
+    // Применение входящей дельты/снимка к локальному состоянию
+    const mergeSyncPayload = (localState = {}, remoteDelta = {}) => {
+      const localTombstones = pruneOldTombstones(localState.syncTombstones || []);
+      const remoteTombstones = pruneOldTombstones(remoteDelta.tombstones || []);
+
+      const nextEntities = {};
+      let nextTombstones = [];
+      const totalStats = { added: 0, updated: 0, deleted: 0, settingsUpdated: 0 };
+
+      for (const key of SYNC_ENTITY_KEYS) {
+        const res = mergeEntityCollection(
+          localState[key] || [],
+          localTombstones,
+          remoteDelta.entities?.[key] || [],
+          remoteTombstones,
+          key
+        );
+        nextEntities[key] = res.active;
+        nextTombstones = nextTombstones.concat(res.tombstones);
+        totalStats.added += res.stats.added;
+        totalStats.updated += res.stats.updated;
+        totalStats.deleted += res.stats.deleted;
+      }
+
+      // Сохранение любых tombstones с неизвестными/будущими entityType
+      for (const t of [...localTombstones, ...remoteTombstones]) {
+        if (!SYNC_ENTITY_KEYS.includes(t.entityType)) {
+          nextTombstones.push(t);
+        }
+      }
+      nextTombstones = pruneOldTombstones(nextTombstones);
+
+      const localMeta = localState.settingsSyncMeta || {};
+      const remoteMeta = remoteDelta.settingsMeta || {};
+      const remoteSettings = remoteDelta.settings || {};
+      const nextMeta = {
+        userProfiles: localMeta.userProfiles || DEFAULT_FALLBACK_UPDATED_AT,
+        safeLimitConfig: localMeta.safeLimitConfig || DEFAULT_FALLBACK_UPDATED_AT,
+        plannedCategoryLimits: { ...(localMeta.plannedCategoryLimits || {}) },
+      };
+
+      let nextUserProfiles = localState.userProfiles;
+      if (remoteSettings.userProfiles && remoteMeta.userProfiles) {
+        if (parseTsMs(remoteMeta.userProfiles) > parseTsMs(nextMeta.userProfiles)) {
+          nextUserProfiles = remoteSettings.userProfiles;
+          nextMeta.userProfiles = remoteMeta.userProfiles;
+          totalStats.settingsUpdated++;
+        }
+      }
+
+      let nextSafeLimitConfig = localState.safeLimitConfig;
+      if (remoteSettings.safeLimitConfig && remoteMeta.safeLimitConfig) {
+        if (parseTsMs(remoteMeta.safeLimitConfig) > parseTsMs(nextMeta.safeLimitConfig)) {
+          nextSafeLimitConfig = remoteSettings.safeLimitConfig;
+          nextMeta.safeLimitConfig = remoteMeta.safeLimitConfig;
+          totalStats.settingsUpdated++;
+        }
+      }
+
+      const nextLimits = { ...(localState.plannedCategoryLimits || {}) };
+      const remoteLimits = remoteSettings.plannedCategoryLimits || {};
+      const remoteLimitsMeta = remoteMeta.plannedCategoryLimits || {};
+      const allCats = new Set([...Object.keys(nextLimits), ...Object.keys(remoteLimits), ...Object.keys(remoteLimitsMeta)]);
+
+      for (const cat of allCats) {
+        const lMeta = nextMeta.plannedCategoryLimits[cat] || {
+          updatedAt: DEFAULT_FALLBACK_UPDATED_AT,
+          deleted: nextLimits[cat] === undefined,
+        };
+        const rMeta = remoteLimitsMeta[cat];
+        if (!rMeta) continue;
+
+        if (parseTsMs(rMeta.updatedAt) > parseTsMs(lMeta.updatedAt)) {
+          nextMeta.plannedCategoryLimits[cat] = rMeta;
+          if (rMeta.deleted || remoteLimits[cat] === undefined) {
+            delete nextLimits[cat];
+          } else {
+            nextLimits[cat] = remoteLimits[cat];
+          }
+          totalStats.settingsUpdated++;
+        }
+      }
+
+      totalStats.totalChanged = totalStats.added + totalStats.updated + totalStats.deleted + totalStats.settingsUpdated;
+
+      return {
+        nextState: {
+          ...nextEntities,
+          syncTombstones: nextTombstones,
+          userProfiles: nextUserProfiles,
+          safeLimitConfig: nextSafeLimitConfig,
+          plannedCategoryLimits: nextLimits,
+          settingsSyncMeta: nextMeta,
+        },
+        stats: totalStats,
+      };
+    };
+
+    // Компактное Base64URL кодирование / декодирование для ссылок и буфера обмена
+    const bytesToBase64Url = (bytes) => {
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      const b64 = typeof btoa === 'function'
+        ? btoa(binary)
+        : Buffer.from(bytes).toString('base64');
+      return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    };
+
+    const base64UrlToBytes = (str) => {
+      const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : '';
+      const full = b64 + pad;
+      if (typeof atob === 'function') {
+        const bin = atob(full);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+      }
+      return new Uint8Array(Buffer.from(full, 'base64'));
+    };
+
+    const compressUtf8Bytes = async (utf8Bytes) => {
+      if (typeof CompressionStream === 'undefined') return null;
+      const cs = new CompressionStream('deflate-raw');
+      const writer = cs.writable.getWriter();
+      writer.write(utf8Bytes);
+      writer.close();
+      const ab = await new Response(cs.readable).arrayBuffer();
+      return new Uint8Array(ab);
+    };
+
+    const decompressUtf8Bytes = async (compressedBytes) => {
+      if (typeof DecompressionStream === 'undefined') {
+        throw new Error('Браузер не поддерживает DecompressionStream');
+      }
+      const ds = new DecompressionStream('deflate-raw');
+      const writer = ds.writable.getWriter();
+      writer.write(compressedBytes);
+      writer.close();
+      const ab = await new Response(ds.readable).arrayBuffer();
+      return new Uint8Array(ab);
+    };
+
+    const encodeDeltaPacket = async (deltaObj) => {
+      const jsonStr = JSON.stringify(deltaObj);
+      const utf8Bytes = new TextEncoder().encode(jsonStr);
+      try {
+        const compressed = await compressUtf8Bytes(utf8Bytes);
+        if (compressed && compressed.length < utf8Bytes.length) {
+          return `fbz1:${bytesToBase64Url(compressed)}`;
+        }
+      } catch {
+        // Fallback на несжатый формат
+      }
+      return `fb1:${bytesToBase64Url(utf8Bytes)}`;
+    };
+
+    const decodeDeltaPacket = async (rawInput) => {
+      let token = String(rawInput || '').trim();
+      if (!token) throw new Error('Пустой код синхронизации');
+
+      // Извлекаем параметр ?sync=... или #sync=... если передан полный URL
+      if (/^https?:\/\//i.test(token) || token.includes('?sync=') || token.includes('&sync=')) {
+        try {
+          const urlObj = new URL(token.startsWith('http') ? token : `https://local.invalid/${token}`);
+          const syncParam = urlObj.searchParams.get('sync');
+          if (syncParam) token = syncParam.trim();
+        } catch {
+          const m = token.match(/[?&#]sync=([^&#]+)/);
+          if (m) token = decodeURIComponent(m[1]).trim();
+        }
+      }
+
+      if (token.startsWith('{')) {
+        const parsed = JSON.parse(token);
+        if (!parsed || parsed.kind !== 'fb_sync_delta') {
+          throw new Error('Неверный формат JSON-дельты');
+        }
+        return parsed;
+      }
+
+      if (token.startsWith('fbz1:')) {
+        const compressed = base64UrlToBytes(token.slice(5));
+        const utf8 = await decompressUtf8Bytes(compressed);
+        const parsed = JSON.parse(new TextDecoder().decode(utf8));
+        if (!parsed || parsed.kind !== 'fb_sync_delta') {
+          throw new Error('Поврежденная дельта синхронизации');
+        }
+        return parsed;
+      }
+
+      if (token.startsWith('fb1:')) {
+        const utf8 = base64UrlToBytes(token.slice(4));
+        const parsed = JSON.parse(new TextDecoder().decode(utf8));
+        if (!parsed || parsed.kind !== 'fb_sync_delta') {
+          throw new Error('Поврежденная дельта синхронизации');
+        }
+        return parsed;
+      }
+
+      throw new Error('Неподдерживаемый формат кода синхронизации');
+    };
+
+    const encodePairingPayload = ({ webhookUrl, syncSecret }) => {
+      const payload = {
+        v: 1,
+        kind: 'fb_pair',
+        u: String(webhookUrl || '').trim(),
+        s: String(syncSecret || '').trim(),
+      };
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      return `fbp1:${bytesToBase64Url(bytes)}`;
+    };
+
+    const decodePairingPayload = (rawInput) => {
+      let token = String(rawInput || '').trim();
+      if (!token) throw new Error('Пустая ссылка подключения');
+
+      if (/^https?:\/\//i.test(token) || token.includes('?pair=') || token.includes('&pair=')) {
+        try {
+          const urlObj = new URL(token.startsWith('http') ? token : `https://local.invalid/${token}`);
+          const pairParam = urlObj.searchParams.get('pair');
+          if (pairParam) token = pairParam.trim();
+        } catch {
+          const m = token.match(/[?&#]pair=([^&#]+)/);
+          if (m) token = decodeURIComponent(m[1]).trim();
+        }
+      }
+
+      if (!token.startsWith('fbp1:')) {
+        throw new Error('Неверный формат ссылки подключения');
+      }
+      const bytes = base64UrlToBytes(token.slice(5));
+      const parsed = JSON.parse(new TextDecoder().decode(bytes));
+      if (!parsed || parsed.kind !== 'fb_pair' || !parsed.u) {
+        throw new Error('Некорректные данные подключения');
+      }
+      return {
+        webhookUrl: String(parsed.u).trim(),
+        syncSecret: String(parsed.s || '').trim(),
+      };
+    };
+
+    // ============================================================================
+    // MODULE: src/utils/qrGenerator.js
+    // ============================================================================
+    // Автономный pure-JS генератор QR-кодов (ISO/IEC 18004, Model 2, Byte mode, EC Level L, v1-v20)
+    // Работает 100% оффлайн без внешних зависимостей и CDN.
+
+    const QR_VERSIONS_L = [
+      null,
+      { totalData: 19, ecPerBlock: 7, g1Blocks: 1, g1Data: 19, g2Blocks: 0, g2Data: 0, align: [] },
+      { totalData: 34, ecPerBlock: 10, g1Blocks: 1, g1Data: 34, g2Blocks: 0, g2Data: 0, align: [6, 18] },
+      { totalData: 55, ecPerBlock: 15, g1Blocks: 1, g1Data: 55, g2Blocks: 0, g2Data: 0, align: [6, 22] },
+      { totalData: 80, ecPerBlock: 20, g1Blocks: 1, g1Data: 80, g2Blocks: 0, g2Data: 0, align: [6, 26] },
+      { totalData: 108, ecPerBlock: 26, g1Blocks: 1, g1Data: 108, g2Blocks: 0, g2Data: 0, align: [6, 30] },
+      { totalData: 136, ecPerBlock: 18, g1Blocks: 2, g1Data: 68, g2Blocks: 0, g2Data: 0, align: [6, 34] },
+      { totalData: 156, ecPerBlock: 20, g1Blocks: 2, g1Data: 78, g2Blocks: 0, g2Data: 0, align: [6, 22, 38] },
+      { totalData: 194, ecPerBlock: 24, g1Blocks: 2, g1Data: 97, g2Blocks: 0, g2Data: 0, align: [6, 24, 42] },
+      { totalData: 232, ecPerBlock: 30, g1Blocks: 2, g1Data: 116, g2Blocks: 0, g2Data: 0, align: [6, 26, 46] },
+      { totalData: 274, ecPerBlock: 18, g1Blocks: 2, g1Data: 68, g2Blocks: 2, g2Data: 69, align: [6, 28, 50] },
+      { totalData: 324, ecPerBlock: 20, g1Blocks: 4, g1Data: 81, g2Blocks: 0, g2Data: 0, align: [6, 30, 54] },
+      { totalData: 370, ecPerBlock: 24, g1Blocks: 2, g1Data: 92, g2Blocks: 2, g2Data: 93, align: [6, 32, 58] },
+      { totalData: 428, ecPerBlock: 26, g1Blocks: 4, g1Data: 107, g2Blocks: 0, g2Data: 0, align: [6, 34, 62] },
+      { totalData: 461, ecPerBlock: 30, g1Blocks: 3, g1Data: 115, g2Blocks: 1, g2Data: 116, align: [6, 26, 46, 66] },
+      { totalData: 523, ecPerBlock: 22, g1Blocks: 5, g1Data: 87, g2Blocks: 1, g2Data: 88, align: [6, 26, 48, 70] },
+      { totalData: 589, ecPerBlock: 24, g1Blocks: 5, g1Data: 98, g2Blocks: 1, g2Data: 99, align: [6, 26, 50, 74] },
+      { totalData: 647, ecPerBlock: 28, g1Blocks: 1, g1Data: 107, g2Blocks: 5, g2Data: 108, align: [6, 30, 54, 78] },
+      { totalData: 721, ecPerBlock: 30, g1Blocks: 5, g1Data: 120, g2Blocks: 1, g2Data: 121, align: [6, 30, 56, 82] },
+      { totalData: 795, ecPerBlock: 28, g1Blocks: 3, g1Data: 113, g2Blocks: 4, g2Data: 114, align: [6, 30, 58, 86] },
+      { totalData: 861, ecPerBlock: 28, g1Blocks: 3, g1Data: 107, g2Blocks: 5, g2Data: 108, align: [6, 34, 62, 90] },
+    ];
+
+    const GF_EXP = new Uint8Array(512);
+    const GF_LOG = new Uint8Array(256);
+    (() => {
+      let x = 1;
+      for (let i = 0; i < 255; i++) {
+        GF_EXP[i] = x;
+        GF_LOG[x] = i;
+        x <<= 1;
+        if (x & 0x100) x ^= 0x11d;
+      }
+      for (let i = 255; i < 512; i++) {
+        GF_EXP[i] = GF_EXP[i - 255];
+      }
+    })();
+
+    const gfMul = (a, b) => (a === 0 || b === 0 ? 0 : GF_EXP[GF_LOG[a] + GF_LOG[b]]);
+
+    const buildRsGeneratorPoly = (degree) => {
+      let poly = [1];
+      for (let i = 0; i < degree; i++) {
+        const next = new Array(poly.length + 1).fill(0);
+        const root = GF_EXP[i];
+        for (let j = 0; j < poly.length; j++) {
+          next[j] ^= poly[j];
+          next[j + 1] ^= gfMul(poly[j], root);
+        }
+        poly = next;
+      }
+      return poly;
+    };
+
+    const computeRsEcBytes = (dataBytes, ecCount) => {
+      const gen = buildRsGeneratorPoly(ecCount);
+      const res = new Uint8Array(ecCount);
+      for (let i = 0; i < dataBytes.length; i++) {
+        const factor = dataBytes[i] ^ res[0];
+        for (let j = 0; j < ecCount - 1; j++) {
+          res[j] = res[j + 1];
+        }
+        res[ecCount - 1] = 0;
+        if (factor !== 0) {
+          for (let j = 0; j < ecCount; j++) {
+            res[j] ^= gfMul(gen[j + 1], factor);
+          }
+        }
+      }
+      return res;
+    };
+
+    const computeFormatBitsL = (maskId) => {
+      const data = (0b01 << 3) | (maskId & 0x7); // EC Level L = 01
+      let d = data << 10;
+      for (let i = 4; i >= 0; i--) {
+        if (d & (1 << (i + 10))) {
+          d ^= 0x537 << i;
+        }
+      }
+      return ((data << 10) | d) ^ 0x5412;
+    };
+
+    const computeVersionBits = (version) => {
+      let d = version << 12;
+      for (let i = 5; i >= 0; i--) {
+        if (d & (1 << (i + 12))) {
+          d ^= 0x1f25 << i;
+        }
+      }
+      return (version << 12) | d;
+    };
+
+    const MASK_FNS = [
+      (r, c) => (r + c) % 2 === 0,
+      (r) => r % 2 === 0,
+      (_r, c) => c % 3 === 0,
+      (r, c) => (r + c) % 3 === 0,
+      (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+      (r, c) => ((r * c) % 2) + ((r * c) % 3) === 0,
+      (r, c) => (((r * c) % 2) + ((r * c) % 3)) % 2 === 0,
+      (r, c) => (((r + c) % 2) + ((r * c) % 3)) % 2 === 0,
+    ];
+
+    const scoreMaskPenalty = (matrix) => {
+      const n = matrix.length;
+      let penalty = 0;
+
+      // Rule 1: 5+ consecutive same-color modules in row/col
+      for (let r = 0; r < n; r++) {
+        let runColor = matrix[r][0];
+        let runLen = 1;
+        for (let c = 1; c < n; c++) {
+          if (matrix[r][c] === runColor) {
+            runLen++;
+          } else {
+            if (runLen >= 5) penalty += 3 + (runLen - 5);
+            runColor = matrix[r][c];
+            runLen = 1;
+          }
+        }
+        if (runLen >= 5) penalty += 3 + (runLen - 5);
+      }
+      for (let c = 0; c < n; c++) {
+        let runColor = matrix[0][c];
+        let runLen = 1;
+        for (let r = 1; r < n; r++) {
+          if (matrix[r][c] === runColor) {
+            runLen++;
+          } else {
+            if (runLen >= 5) penalty += 3 + (runLen - 5);
+            runColor = matrix[r][c];
+            runLen = 1;
+          }
+        }
+        if (runLen >= 5) penalty += 3 + (runLen - 5);
+      }
+
+      // Rule 2: 2x2 blocks
+      for (let r = 0; r < n - 1; r++) {
+        for (let c = 0; c < n - 1; c++) {
+          const v = matrix[r][c];
+          if (v === matrix[r][c + 1] && v === matrix[r + 1][c] && v === matrix[r + 1][c + 1]) {
+            penalty += 3;
+          }
+        }
+      }
+
+      // Rule 3: 1:1:3:1:1 finder-like patterns
+      const matchP1 = (arr, i) =>
+        arr[i] === 1 && arr[i + 1] === 0 && arr[i + 2] === 1 && arr[i + 3] === 1 && arr[i + 4] === 1 &&
+        arr[i + 5] === 0 && arr[i + 6] === 1 && arr[i + 7] === 0 && arr[i + 8] === 0 && arr[i + 9] === 0 && arr[i + 10] === 0;
+      const matchP2 = (arr, i) =>
+        arr[i] === 0 && arr[i + 1] === 0 && arr[i + 2] === 0 && arr[i + 3] === 0 && arr[i + 4] === 1 &&
+        arr[i + 5] === 0 && arr[i + 6] === 1 && arr[i + 7] === 1 && arr[i + 8] === 1 && arr[i + 9] === 0 && arr[i + 10] === 1;
+
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c <= n - 11; c++) {
+          if (matchP1(matrix[r], c) || matchP2(matrix[r], c)) penalty += 40;
+        }
+      }
+      const colArr = new Uint8Array(n);
+      for (let c = 0; c < n; c++) {
+        for (let r = 0; r < n; r++) colArr[r] = matrix[r][c];
+        for (let r = 0; r <= n - 11; r++) {
+          if (matchP1(colArr, r) || matchP2(colArr, r)) penalty += 40;
+        }
+      }
+
+      // Rule 4: dark ratio deviation from 50%
+      let dark = 0;
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) if (matrix[r][c]) dark++;
+      }
+      const pct = (dark * 100) / (n * n);
+      const k = Math.min(Math.abs(Math.floor(pct / 5) * 5 - 50), Math.abs(Math.ceil(pct / 5) * 5 - 50));
+      penalty += (k / 5) * 10;
+
+      return penalty;
+    };
+
+    const createBaseMatrix = (version) => {
+      const spec = QR_VERSIONS_L[version];
+      const size = version * 4 + 17;
+      const modules = Array.from({ length: size }, () => new Uint8Array(size));
+      const isFunc = Array.from({ length: size }, () => new Uint8Array(size));
+
+      const setFunc = (r, c, val) => {
+        if (r >= 0 && r < size && c >= 0 && c < size) {
+          modules[r][c] = val ? 1 : 0;
+          isFunc[r][c] = 1;
+        }
+      };
+
+      // Finder patterns + 1px white separators
+      const placeFinder = (top, left) => {
+        for (let dr = -1; dr <= 7; dr++) {
+          for (let dc = -1; dc <= 7; dc++) {
+            const r = top + dr;
+            const c = left + dc;
+            if (r < 0 || r >= size || c < 0 || c >= size) continue;
+            const inBox = dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6;
+            const isDark =
+              inBox &&
+              (dr === 0 || dr === 6 || dc === 0 || dc === 6 || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4));
+            setFunc(r, c, isDark);
+          }
+        }
+      };
+      placeFinder(0, 0);
+      placeFinder(0, size - 7);
+      placeFinder(size - 7, 0);
+
+      // Alignment patterns
+      const alignPos = spec.align;
+      for (let i = 0; i < alignPos.length; i++) {
+        for (let j = 0; j < alignPos.length; j++) {
+          const ar = alignPos[i];
+          const ac = alignPos[j];
+          if ((i === 0 && j === 0) || (i === 0 && j === alignPos.length - 1) || (i === alignPos.length - 1 && j === 0)) {
+            continue;
+          }
+          for (let dr = -2; dr <= 2; dr++) {
+            for (let dc = -2; dc <= 2; dc++) {
+              const isDark = Math.max(Math.abs(dr), Math.abs(dc)) !== 1;
+              setFunc(ar + dr, ac + dc, isDark);
+            }
+          }
+        }
+      }
+
+      // Timing patterns
+      for (let i = 8; i < size - 8; i++) {
+        setFunc(6, i, i % 2 === 0);
+        setFunc(i, 6, i % 2 === 0);
+      }
+
+      // Dark module
+      setFunc(size - 8, 8, 1);
+
+      // Reserve Format Info slots
+      for (let i = 0; i <= 8; i++) {
+        if (i !== 6) {
+          setFunc(8, i, 0);
+          setFunc(i, 8, 0);
+        }
+      }
+      for (let i = 0; i < 8; i++) {
+        setFunc(8, size - 1 - i, 0);
+      }
+      for (let i = 0; i < 7; i++) {
+        setFunc(size - 1 - i, 8, 0);
+      }
+
+      // Version Info (v >= 7)
+      if (version >= 7) {
+        const vBits = computeVersionBits(version);
+        for (let i = 0; i < 18; i++) {
+          const bit = (vBits >>> i) & 1;
+          const a = Math.floor(i / 3);
+          const b = (i % 3) + size - 11;
+          setFunc(a, b, bit);
+          setFunc(b, a, bit);
+        }
+      }
+
+      return { size, modules, isFunc };
+    };
+
+    const writeFormatBits = (modules, size, maskId) => {
+      const fmt = computeFormatBitsL(maskId);
+      // Copy 1: top-left
+      for (let i = 0; i <= 5; i++) modules[8][i] = (fmt >>> (14 - i)) & 1;
+      modules[8][7] = (fmt >>> 8) & 1;
+      modules[8][8] = (fmt >>> 7) & 1;
+      modules[7][8] = (fmt >>> 6) & 1;
+      for (let i = 0; i <= 5; i++) modules[5 - i][8] = (fmt >>> (5 - i)) & 1;
+
+      // Copy 2: bottom-left & top-right
+      for (let i = 0; i < 7; i++) modules[size - 1 - i][8] = (fmt >>> (14 - i)) & 1;
+      for (let i = 0; i < 8; i++) modules[8][size - 8 + i] = (fmt >>> (7 - i)) & 1;
+    };
+
+    const encodeQrMatrix = (text) => {
+      const utf8 = new TextEncoder().encode(String(text || ''));
+      let chosenVersion = -1;
+
+      for (let v = 1; v < QR_VERSIONS_L.length; v++) {
+        const capBits = QR_VERSIONS_L[v].totalData * 8;
+        const headerBits = v <= 9 ? 12 : 20;
+        if (headerBits + utf8.length * 8 <= capBits) {
+          chosenVersion = v;
+          break;
+        }
+      }
+
+      if (chosenVersion === -1) {
+        return { ok: false, reason: 'TOO_LARGE', byteLength: utf8.length, maxBytes: 858 };
+      }
+
+      const spec = QR_VERSIONS_L[chosenVersion];
+      const bitBuf = [];
+      const pushBits = (val, len) => {
+        for (let i = len - 1; i >= 0; i--) {
+          bitBuf.push((val >>> i) & 1);
+        }
+      };
+
+      // Byte mode: 0100 + char count + payload bytes
+      pushBits(0b0100, 4);
+      pushBits(utf8.length, chosenVersion <= 9 ? 8 : 16);
+      for (let i = 0; i < utf8.length; i++) {
+        pushBits(utf8[i], 8);
+      }
+
+      const maxBits = spec.totalData * 8;
+      const termLen = Math.min(4, maxBits - bitBuf.length);
+      pushBits(0, termLen);
+      while (bitBuf.length % 8 !== 0) bitBuf.push(0);
+
+      const dataBytes = new Uint8Array(spec.totalData);
+      for (let i = 0; i < bitBuf.length / 8; i++) {
+        let b = 0;
+        for (let k = 0; k < 8; k++) b = (b << 1) | bitBuf[i * 8 + k];
+        dataBytes[i] = b;
+      }
+      const padBytes = [0xec, 0x11];
+      let padIdx = 0;
+      for (let i = bitBuf.length / 8; i < spec.totalData; i++) {
+        dataBytes[i] = padBytes[padIdx % 2];
+        padIdx++;
+      }
+
+      // Split into blocks & compute Reed-Solomon EC codewords
+      const blocks = [];
+      let offset = 0;
+      for (let i = 0; i < spec.g1Blocks; i++) {
+        const slice = dataBytes.subarray(offset, offset + spec.g1Data);
+        offset += spec.g1Data;
+        blocks.push({ data: slice, ec: computeRsEcBytes(slice, spec.ecPerBlock) });
+      }
+      for (let i = 0; i < spec.g2Blocks; i++) {
+        const slice = dataBytes.subarray(offset, offset + spec.g2Data);
+        offset += spec.g2Data;
+        blocks.push({ data: slice, ec: computeRsEcBytes(slice, spec.ecPerBlock) });
+      }
+
+      // Interleave data and EC codewords
+      const codewords = [];
+      const maxDataLen = Math.max(spec.g1Data, spec.g2Data);
+      for (let col = 0; col < maxDataLen; col++) {
+        for (const blk of blocks) {
+          if (col < blk.data.length) codewords.push(blk.data[col]);
+        }
+      }
+      for (let col = 0; col < spec.ecPerBlock; col++) {
+        for (const blk of blocks) {
+          codewords.push(blk.ec[col]);
+        }
+      }
+
+      const { size, modules: baseModules, isFunc } = createBaseMatrix(chosenVersion);
+
+      // Place data bits in zig-zag order
+      let cwIdx = 0;
+      let bitInByte = 7;
+      let goingUp = true;
+      for (let right = size - 1; right >= 1; right -= 2) {
+        if (right === 6) right = 5;
+        for (let step = 0; step < size; step++) {
+          const r = goingUp ? size - 1 - step : step;
+          for (let dx = 0; dx < 2; dx++) {
+            const c = right - dx;
+            if (isFunc[r][c]) continue;
+            let bit = 0;
+            if (cwIdx < codewords.length) {
+              bit = (codewords[cwIdx] >>> bitInByte) & 1;
+              bitInByte--;
+              if (bitInByte < 0) {
+                bitInByte = 7;
+                cwIdx++;
+              }
+            }
+            baseModules[r][c] = bit;
+          }
+        }
+        goingUp = !goingUp;
+      }
+
+      // Evaluate 8 masks and choose lowest penalty
+      let bestMask = 0;
+      let bestPenalty = Infinity;
+      let bestMatrix = null;
+
+      for (let m = 0; m < 8; m++) {
+        const candidate = baseModules.map(row => new Uint8Array(row));
+        const maskFn = MASK_FNS[m];
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            if (!isFunc[r][c] && maskFn(r, c)) {
+              candidate[r][c] ^= 1;
+            }
+          }
+        }
+        writeFormatBits(candidate, size, m);
+        const penalty = scoreMaskPenalty(candidate);
+        if (penalty < bestPenalty) {
+          bestPenalty = penalty;
+          bestMask = m;
+          bestMatrix = candidate;
+        }
+      }
+
+      return {
+        ok: true,
+        version: chosenVersion,
+        size,
+        mask: bestMask,
+        matrix: bestMatrix,
+      };
+    };
+
+    const buildQrSvgPath = (matrix) => {
+      if (!Array.isArray(matrix)) return '';
+      const n = matrix.length;
+      const parts = [];
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          if (matrix[r][c]) {
+            parts.push(`M${c},${r}h1v1h-1z`);
+          }
+        }
+      }
+      return parts.join('');
+    };
+
+    // ============================================================================
+    // MODULE: src/utils/gasSyncTransport.js
+    // ============================================================================
+    const isValidGasWebhookUrl = (url) => {
+      const s = String(url || '').trim();
+      if (!s) return false;
+      try {
+        const u = new URL(s);
+        return u.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    };
+
+    const generateRandomSyncSecret = () => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+      let out = 'fb-';
+      for (let i = 0; i < 12; i++) {
+        out += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return out;
+    };
+
+    const generateGasCodeScript = (syncSecret = 'fb-family-secret') => {
+      const safeSecretLiteral = JSON.stringify(String(syncSecret || 'fb-family-secret'));
+      return `// Google Apps Script для синхронизации «Семейного Бюджета» (FB-10)
+    // 1. Вставьте этот код в Расширения -> Apps Script вашей Google Таблицы
+    // 2. Нажмите «Начать развертывание» -> «Новое развертывание» -> «Веб-приложение»
+    // 3. Выполнять от имени: Меня | У кого есть доступ: Все (Anyone)
+
+    const SYNC_SECRET = ${safeSecretLiteral};
+    const STORE_SHEET = 'Sync_Store';
+    const VIEW_SHEET = 'Операции';
+    const ENTITY_KEYS = ['transactions', 'goals', 'recurringPayments', 'debts', 'customCategories'];
+
+    function jsonResponse(obj) {
+      return ContentService
+        .createTextOutput(JSON.stringify(obj))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    function doGet() {
+      return jsonResponse({ ok: true, status: 'Family Budget GAS Sync Ready', serverTime: new Date().toISOString() });
+    }
+
+    function parseMs(iso) {
+      if (!iso) return 0;
+      const ms = Date.parse(iso);
+      return isNaN(ms) ? 0 : ms;
+    }
+
+    function ensureSheets(ss) {
+      let view = ss.getSheetByName(VIEW_SHEET);
+      if (!view) {
+        view = ss.getSheets()[0] || ss.insertSheet(VIEW_SHEET);
+        view.setName(VIEW_SHEET);
+      }
+      let store = ss.getSheetByName(STORE_SHEET);
+      if (!store) {
+        store = ss.insertSheet(STORE_SHEET);
+        store.getRange(1, 1, 1, 5).setValues([['EntityType', 'Id', 'UpdatedAt', 'DeletedAt', 'JsonPayload']]);
+      }
+      return { store, view };
+    }
+
+    function readStoreMap(store) {
+      const lastRow = store.getLastRow();
+      const map = {};
+      if (lastRow < 2) return map;
+      const rows = store.getRange(2, 1, lastRow - 1, 5).getValues();
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const entityType = String(r[0] || '');
+        const id = String(r[1] || '');
+        if (!entityType || !id) continue;
+        map[entityType + ':' + id] = {
+          entityType: entityType,
+          id: id,
+          updatedAt: String(r[2] || ''),
+          deletedAt: String(r[3] || ''),
+          jsonPayload: String(r[4] || ''),
+        };
+      }
+      return map;
+    }
+
+    function writeStoreMap(store, map) {
+      const rows = [['EntityType', 'Id', 'UpdatedAt', 'DeletedAt', 'JsonPayload']];
+      const keys = Object.keys(map);
+      for (let i = 0; i < keys.length; i++) {
+        const item = map[keys[i]];
+        rows.push([item.entityType, item.id, item.updatedAt, item.deletedAt, item.jsonPayload]);
+      }
+      store.clearContents();
+      store.getRange(1, 1, rows.length, 5).setValues(rows);
+    }
+
+    function refreshReadableView(view, map) {
+      const txRows = [];
+      const keys = Object.keys(map);
+      for (let i = 0; i < keys.length; i++) {
+        const rec = map[keys[i]];
+        if (rec.entityType !== 'transactions' || rec.deletedAt) continue;
+        try {
+          const tx = JSON.parse(rec.jsonPayload);
+          const typeLabel = tx.isOpeningBalance ? 'Начальный остаток' : (tx.type === 'transfer' ? 'Перевод' : (tx.type === 'income' ? 'Доход' : 'Расход'));
+          const accLabel = tx.type === 'transfer' ? ((tx.fromWallet || tx.account) + ' -> ' + (tx.transferTo || 'shared')) : (tx.account === 'personal' ? 'Личный' : 'Общий');
+          txRows.push([tx.date || '', typeLabel, tx.category || '', tx.title || '', Number(tx.amount) || 0, accLabel, tx.author || '']);
+        } catch (err) {}
+      }
+      txRows.sort(function(a, b) { return String(b[0]).localeCompare(String(a[0])); });
+      const output = [['Дата', 'Тип', 'Категория', 'Название', 'Сумма', 'Счет', 'Автор']].concat(txRows);
+      view.clearContents();
+      view.getRange(1, 1, output.length, 7).setValues(output);
+    }
+
+    function doPost(e) {
+      let payload;
+      try {
+        payload = JSON.parse(e.postData.contents || '{}');
+      } catch (err) {
+        return jsonResponse({ ok: false, error: 'Некорректный JSON в запросе' });
+      }
+
+      if (String(payload.secret || '') !== SYNC_SECRET) {
+        return jsonResponse({ ok: false, error: 'Неверный секретный ключ семьи (SYNC_SECRET)' });
+      }
+
+      const lock = LockService.getScriptLock();
+      try {
+        lock.waitLock(15000);
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const sheets = ensureSheets(ss);
+        const map = readStoreMap(sheets.store);
+        const serverTime = new Date().toISOString();
+
+        if (payload.action === 'ping') {
+          return jsonResponse({ ok: true, serverTime: serverTime, recordsCount: Object.keys(map).length });
+        }
+
+        if (payload.action !== 'sync' || !payload.delta) {
+          return jsonResponse({ ok: false, error: 'Неизвестное действие синхронизации' });
+        }
+
+        const delta = payload.delta;
+        let changed = false;
+
+        for (let k = 0; k < ENTITY_KEYS.length; k++) {
+          const eKey = ENTITY_KEYS[k];
+          const list = (delta.entities && delta.entities[eKey]) || [];
+          for (let i = 0; i < list.length; i++) {
+            const item = list[i];
+            if (!item || item.id === undefined || item.id === null) continue;
+            const mapKey = eKey + ':' + String(item.id);
+            const cur = map[mapKey];
+            const inTs = parseMs(item.updatedAt);
+            const curTs = cur ? Math.max(parseMs(cur.updatedAt), parseMs(cur.deletedAt)) : -1;
+            if (!cur || inTs > curTs) {
+              map[mapKey] = {
+                entityType: eKey,
+                id: String(item.id),
+                updatedAt: item.updatedAt || serverTime,
+                deletedAt: '',
+                jsonPayload: JSON.stringify(item),
+              };
+              changed = true;
+            }
+          }
+        }
+
+        const tombstones = delta.tombstones || [];
+        for (let i = 0; i < tombstones.length; i++) {
+          const t = tombstones[i];
+          if (!t || !t.entityType || t.id === undefined || t.id === null) continue;
+          const mapKey = t.entityType + ':' + String(t.id);
+          const cur = map[mapKey];
+          const delTs = parseMs(t.deletedAt);
+          const curActiveTs = cur ? parseMs(cur.updatedAt) : -1;
+          const curDelTs = cur ? parseMs(cur.deletedAt) : -1;
+          if (!cur || delTs >= Math.max(curActiveTs, curDelTs)) {
+            map[mapKey] = {
+              entityType: t.entityType,
+              id: String(t.id),
+              updatedAt: '',
+              deletedAt: t.deletedAt || serverTime,
+              jsonPayload: '',
+            };
+            changed = true;
+          }
+        }
+
+        const settings = delta.settings || {};
+        const sMeta = delta.settingsMeta || {};
+        ['userProfiles', 'safeLimitConfig'].forEach(function(sKey) {
+          if (settings[sKey] && sMeta[sKey]) {
+            const mapKey = 'settings:' + sKey;
+            const cur = map[mapKey];
+            if (!cur || parseMs(sMeta[sKey]) > parseMs(cur.updatedAt)) {
+              map[mapKey] = {
+                entityType: 'settings',
+                id: sKey,
+                updatedAt: sMeta[sKey],
+                deletedAt: '',
+                jsonPayload: JSON.stringify(settings[sKey]),
+              };
+              changed = true;
+            }
+          }
+        });
+
+        if (sMeta.plannedCategoryLimits) {
+          const pMeta = sMeta.plannedCategoryLimits;
+          const pVals = settings.plannedCategoryLimits || {};
+          const cats = Object.keys(pMeta);
+          for (let i = 0; i < cats.length; i++) {
+            const cat = cats[i];
+            const m = pMeta[cat];
+            if (!m || !m.updatedAt) continue;
+            const mapKey = 'plannedLimit:' + cat;
+            const cur = map[mapKey];
+            const curTs = cur ? Math.max(parseMs(cur.updatedAt), parseMs(cur.deletedAt)) : -1;
+            if (!cur || parseMs(m.updatedAt) > curTs) {
+              map[mapKey] = {
+                entityType: 'plannedLimit',
+                id: cat,
+                updatedAt: m.deleted ? '' : m.updatedAt,
+                deletedAt: m.deleted ? m.updatedAt : '',
+                jsonPayload: m.deleted ? '' : JSON.stringify(pVals[cat]),
+              };
+              changed = true;
+            }
+          }
+        }
+
+        if (changed) {
+          writeStoreMap(sheets.store, map);
+          refreshReadableView(sheets.view, map);
+        }
+
+        const sinceMs = payload.since ? parseMs(payload.since) : -1;
+        const outEntities = {};
+        for (let k = 0; k < ENTITY_KEYS.length; k++) outEntities[ENTITY_KEYS[k]] = [];
+        const outTombstones = [];
+        const outSettings = {};
+        const outSettingsMeta = { plannedCategoryLimits: {} };
+        const outLimits = {};
+
+        const allKeys = Object.keys(map);
+        for (let i = 0; i < allKeys.length; i++) {
+          const rec = map[allKeys[i]];
+          const recTs = Math.max(parseMs(rec.updatedAt), parseMs(rec.deletedAt));
+          if (sinceMs >= 0 && recTs <= sinceMs) continue;
+
+          if (rec.entityType === 'settings') {
+            try {
+              outSettings[rec.id] = JSON.parse(rec.jsonPayload);
+              outSettingsMeta[rec.id] = rec.updatedAt;
+            } catch (err) {}
+          } else if (rec.entityType === 'plannedLimit') {
+            if (rec.deletedAt) {
+              outSettingsMeta.plannedCategoryLimits[rec.id] = { updatedAt: rec.deletedAt, deleted: true };
+            } else {
+              try {
+                outLimits[rec.id] = JSON.parse(rec.jsonPayload);
+                outSettingsMeta.plannedCategoryLimits[rec.id] = { updatedAt: rec.updatedAt, deleted: false };
+              } catch (err) {}
+            }
+          } else if (rec.deletedAt) {
+            outTombstones.push({ entityType: rec.entityType, id: rec.id, deletedAt: rec.deletedAt });
+          } else if (outEntities[rec.entityType]) {
+            try {
+              outEntities[rec.entityType].push(JSON.parse(rec.jsonPayload));
+            } catch (err) {}
+          }
+        }
+
+        if (Object.keys(outSettingsMeta.plannedCategoryLimits).length > 0) {
+          outSettings.plannedCategoryLimits = outLimits;
+        } else {
+          delete outSettingsMeta.plannedCategoryLimits;
+        }
+
+        return jsonResponse({
+          ok: true,
+          serverTime: serverTime,
+          delta: {
+            v: 1,
+            kind: 'fb_sync_delta',
+            generatedAt: serverTime,
+            since: payload.since || null,
+            entities: outEntities,
+            tombstones: outTombstones,
+            settings: outSettings,
+            settingsMeta: outSettingsMeta,
+          },
+        });
+      } catch (err) {
+        return jsonResponse({ ok: false, error: String(err && err.message ? err.message : err) });
+      } finally {
+        try { lock.releaseLock(); } catch (e) {}
+      }
+    }
+    `;
+    };
+
+    const postGasRequest = async (webhookUrl, bodyObj, timeoutMs = 20000) => {
+      if (!isValidGasWebhookUrl(webhookUrl)) {
+        throw new Error('Укажите корректный HTTPS-адрес веб-приложения Google Apps Script');
+      }
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+      try {
+        const response = await fetch(webhookUrl.trim(), {
+          method: 'POST',
+          headers: {
+            // Используем text/plain, чтобы избежать CORS preflight OPTIONS в Google Apps Script
+            'Content-Type': 'text/plain;charset=utf-8',
+          },
+          body: JSON.stringify(bodyObj),
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+
+        const text = await response.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error('Google Apps Script вернул HTML вместо JSON. Проверьте доступ: «Все (Anyone)» при развертывании.');
+        }
+        if (!parsed.ok) {
+          throw new Error(parsed.error || 'Ошибка синхронизации на стороне Google Таблицы');
+        }
+        return parsed;
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          throw new Error('Превышено время ожидания ответа от Google Таблицы');
+        }
+        throw err;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    const testGasWebhookConnection = async ({ webhookUrl, syncSecret }) => {
+      return postGasRequest(webhookUrl, {
+        action: 'ping',
+        secret: String(syncSecret || '').trim(),
+      }, 15000);
+    };
+
+    const syncWithGasWebhook = async ({
+      webhookUrl,
+      syncSecret,
+      localState,
+      lastSyncAt,
+    }) => {
+      const delta = buildSyncDelta(localState, lastSyncAt || null);
+      return postGasRequest(webhookUrl, {
+        action: 'sync',
+        secret: String(syncSecret || '').trim(),
+        since: lastSyncAt || null,
+        delta,
+      }, 25000);
+    };
+
+    // ============================================================================
     // MODULE: src/hooks/useFocusTrap.js
     // ============================================================================
     // Хук ловушки фокуса (Focus Trap) для соблюдения стандарта доступности WCAG 2.1.2 в модальных окнах
@@ -2607,6 +3957,12 @@
       onOpenOnboarding,
       onLoadDemoData,
       onDismissOnboarding,
+      isSyncConfigured,
+      hasUnsyncedChanges,
+      lastSyncAt,
+      isSyncing,
+      onOpenSyncModal,
+      onQuickSync,
       reminderSummary,
       openPayRecurringModal,
       setActiveTab,
@@ -2686,6 +4042,49 @@
               </div>
             </div>
           )}
+
+          {/* КОМПАКТНАЯ МОБИЛЬНАЯ ПЛАШКА СИНХРОНИЗАЦИИ СУПРУГОВ (sm:hidden, не перегружает шапку на 360px) */}
+          <div className="sm:hidden bg-white border border-stone-200/80 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2 shadow-sm">
+            <button
+              type="button"
+              onClick={onOpenSyncModal}
+              className="flex items-center gap-2 min-w-0 text-left"
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${
+                !isSyncConfigured ? 'bg-stone-300' : hasUnsyncedChanges ? 'bg-amber-500' : 'bg-emerald-500'
+              }`} />
+              <span className="text-xs font-semibold text-stone-800 truncate">
+                {!isSyncConfigured
+                  ? 'Синхронизация супругов'
+                  : hasUnsyncedChanges
+                  ? 'Есть новые записи для синка'
+                  : lastSyncAt
+                  ? `Синк: ${new Date(lastSyncAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Синхронизация подключена'}
+              </span>
+            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {isSyncConfigured ? (
+                <button
+                  type="button"
+                  disabled={isSyncing}
+                  onClick={onQuickSync}
+                  className="h-8 px-2.5 rounded-lg bg-stone-900 text-white text-xs font-semibold inline-flex items-center gap-1 disabled:opacity-60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Синк...' : 'Синк'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onOpenSyncModal}
+                  className="h-8 px-2.5 rounded-lg bg-stone-100 text-stone-800 text-xs font-semibold"
+                >
+                  Настроить
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* УМНАЯ НАПОМИНАЛКА О ГОРЯЩИХ И ПРОСРОЧЕННЫХ ОБЯЗАТЕЛЬНЫХ ПЛАТЕЖАХ */}
           {reminderSummary.urgentRecs.length > 0 && (
@@ -4181,6 +5580,7 @@
       onImportFile,
       onClearAllData,
       onRestoreDemoData,
+      onOpenSyncModal,
     }) {
       const modalRef = useRef(null);
       const fileInputRef = useRef(null);
@@ -4219,6 +5619,28 @@
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {onOpenSyncModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSyncModal();
+                }}
+                className="w-full p-3 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/80 text-left transition flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="w-8 h-8 rounded-lg bg-white text-indigo-700 flex items-center justify-center shrink-0 border border-indigo-200/70">
+                    <RefreshCw className="w-4 h-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-stone-900 truncate">Синхронизация телефонов супругов</div>
+                    <div className="text-[11px] text-stone-600 truncate">Google Таблица без OAuth или передача дельты (ссылка / QR)</div>
+                  </div>
+                </div>
+                <span className="text-xs font-semibold text-indigo-700 shrink-0">Открыть →</span>
+              </button>
+            )}
 
             {/* 1. Выгрузка в таблицы и для нейронки (4 карточки одинаковой высоты) */}
             <div className="space-y-2.5">
@@ -4368,6 +5790,596 @@
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      );
+    });
+
+    // ============================================================================
+    // MODULE: src/components/modals/FamilySyncModal.jsx
+    // ============================================================================
+    const getShareBaseUrl = () => {
+      if (typeof window === 'undefined') return '';
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        return `${window.location.origin}${window.location.pathname}`;
+      }
+      return '';
+    };
+
+    const copyTextToClipboard = async (text) => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    };
+
+    const FamilySyncModal = React.memo(function FamilySyncModal({
+      isOpen,
+      onClose,
+      syncConfig,
+      onSaveSyncConfig,
+      lastSyncAt,
+      hasUnsyncedChanges,
+      isSyncing,
+      syncError,
+      onSyncNow,
+      onTestConnection,
+      localState,
+      pendingIncomingPair,
+      onClearPendingPair,
+      pendingIncomingDeltaToken,
+      onClearPendingDeltaToken,
+      onApplyDecodedDelta,
+      showToast,
+    }) {
+      const modalRef = useRef(null);
+      useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
+
+      const [tab, setTab] = useState('cloud'); // 'cloud' | 'p2p'
+      const [webhookUrl, setWebhookUrl] = useState(syncConfig?.webhookUrl || '');
+      const [syncSecret, setSyncSecret] = useState(syncConfig?.syncSecret || '');
+      const [showSetupGuide, setShowSetupGuide] = useState(false);
+      const [showPairQr, setShowPairQr] = useState(false);
+      const [testResult, setTestResult] = useState(null);
+      const [isTesting, setIsTesting] = useState(false);
+
+      // Вкладка P2P-дельты
+      const [deltaScope, setDeltaScope] = useState('since'); // 'since' | 'full'
+      const [outgoingToken, setOutgoingToken] = useState('');
+      const [outgoingSummary, setOutgoingSummary] = useState(null);
+      const [showDeltaQr, setShowDeltaQr] = useState(false);
+      const [incomingInput, setIncomingInput] = useState('');
+      const [incomingPreview, setIncomingPreview] = useState(null);
+      const [incomingError, setIncomingError] = useState('');
+
+      useEffect(() => {
+        if (!isOpen) return;
+        setTestResult(null);
+        setIncomingError('');
+
+        if (pendingIncomingPair) {
+          setTab('cloud');
+          setWebhookUrl(pendingIncomingPair.webhookUrl || '');
+          setSyncSecret(pendingIncomingPair.syncSecret || '');
+          setShowSetupGuide(false);
+        } else {
+          setWebhookUrl(syncConfig?.webhookUrl || '');
+          setSyncSecret(syncConfig?.syncSecret || generateRandomSyncSecret());
+        }
+
+        if (pendingIncomingDeltaToken) {
+          setTab('p2p');
+          setIncomingInput(pendingIncomingDeltaToken);
+        } else {
+          setIncomingInput('');
+          setIncomingPreview(null);
+        }
+
+        setOutgoingToken('');
+        setOutgoingSummary(null);
+        setShowDeltaQr(false);
+        setShowPairQr(false);
+      }, [isOpen, syncConfig, pendingIncomingPair, pendingIncomingDeltaToken]);
+
+      // Авто-предпросмотр входящей дельты
+      useEffect(() => {
+        let cancelled = false;
+        const raw = incomingInput.trim();
+        if (!raw) {
+          setIncomingPreview(null);
+          setIncomingError('');
+          return;
+        }
+
+        decodeDeltaPacket(raw)
+          .then((delta) => {
+            if (cancelled) return;
+            const txsCount = (delta.entities?.transactions || []).length;
+            const otherCount =
+              (delta.entities?.goals || []).length +
+              (delta.entities?.recurringPayments || []).length +
+              (delta.entities?.debts || []).length +
+              (delta.entities?.customCategories || []).length;
+            const delCount = (delta.tombstones || []).length;
+            setIncomingPreview({ delta, txsCount, otherCount, delCount });
+            setIncomingError('');
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            setIncomingPreview(null);
+            setIncomingError(err?.message || 'Не удалось распознать код синхронизации');
+          });
+
+        return () => {
+          cancelled = true;
+        };
+      }, [incomingInput]);
+
+      if (!isOpen) return null;
+
+      const isUrlValid = isValidGasWebhookUrl(webhookUrl);
+      const canCloudSync = isUrlValid && syncSecret.trim().length >= 4;
+
+      const buildPairShareString = () => {
+        const token = encodePairingPayload({ webhookUrl, syncSecret });
+        const base = getShareBaseUrl();
+        return base ? `${base}?pair=${encodeURIComponent(token)}` : token;
+      };
+
+      const pairQrResult = showPairQr && canCloudSync ? encodeQrMatrix(buildPairShareString()) : null;
+      const deltaQrResult = showDeltaQr && outgoingToken ? encodeQrMatrix(outgoingToken) : null;
+
+      const handleSaveAndSync = async (e) => {
+        e?.preventDefault();
+        const cfg = { webhookUrl: webhookUrl.trim(), syncSecret: syncSecret.trim() };
+        onSaveSyncConfig(cfg);
+        if (pendingIncomingPair) onClearPendingPair();
+        await onSyncNow(cfg);
+      };
+
+      const handleTest = async () => {
+        setIsTesting(true);
+        setTestResult(null);
+        try {
+          const res = await onTestConnection({ webhookUrl: webhookUrl.trim(), syncSecret: syncSecret.trim() });
+          setTestResult({ ok: true, msg: `Связь работает! Записей в таблице: ${res.recordsCount ?? 0}` });
+          onSaveSyncConfig({ webhookUrl: webhookUrl.trim(), syncSecret: syncSecret.trim() });
+        } catch (err) {
+          setTestResult({ ok: false, msg: err?.message || 'Ошибка соединения' });
+        } finally {
+          setIsTesting(false);
+        }
+      };
+
+      const handleCopyGasScript = async () => {
+        const code = generateGasCodeScript(syncSecret.trim() || 'fb-family-secret');
+        await copyTextToClipboard(code);
+        showToast('Код Google Apps Script (Code.gs) скопирован в буфер!');
+      };
+
+      const handleSharePairing = async () => {
+        const link = buildPairShareString();
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: 'Подключение Семейного Бюджета',
+              text: 'Откройте ссылку, чтобы подключить телефон к нашему семейному бюджету:',
+              url: link,
+            });
+            return;
+          } catch {
+            // Пользователь отменил или Web Share недоступен — копируем
+          }
+        }
+        await copyTextToClipboard(link);
+        showToast('Ссылка подключения второго телефона скопирована!');
+      };
+
+      const handleBuildAndShareDelta = async (shareViaSystem = false) => {
+        const since = deltaScope === 'since' ? lastSyncAt : null;
+        const delta = buildSyncDelta(localState, since);
+        const token = await encodeDeltaPacket(delta);
+        const base = getShareBaseUrl();
+        const payloadStr = base ? `${base}?sync=${encodeURIComponent(token)}` : token;
+
+        setOutgoingToken(payloadStr);
+        setOutgoingSummary({
+          txs: (delta.entities?.transactions || []).length,
+          others:
+            (delta.entities?.goals || []).length +
+            (delta.entities?.recurringPayments || []).length +
+            (delta.entities?.debts || []).length +
+            (delta.entities?.customCategories || []).length,
+          tombstones: (delta.tombstones || []).length,
+          bytes: new TextEncoder().encode(payloadStr).length,
+        });
+
+        if (shareViaSystem && navigator.share && base) {
+          try {
+            await navigator.share({
+              title: 'Обновление Семейного Бюджета',
+              text: 'Новые операции для синхронизации нашего бюджета:',
+              url: payloadStr,
+            });
+            return;
+          } catch {
+            // Fallback в буфер обмена
+          }
+        }
+        await copyTextToClipboard(payloadStr);
+        showToast('Дельта синхронизации скопирована! Отправьте ее супругу в Telegram.');
+      };
+
+      const handleApplyIncoming = () => {
+        if (!incomingPreview?.delta) return;
+        onApplyDecodedDelta(incomingPreview.delta);
+        setIncomingInput('');
+        setIncomingPreview(null);
+        if (pendingIncomingDeltaToken) onClearPendingDeltaToken();
+        onClose();
+      };
+
+      return (
+        <div
+          {...backdropDismiss}
+          className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sync-modal-title"
+        >
+          <div
+            ref={modalRef}
+            className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[94vh] overflow-y-auto space-y-4"
+          >
+            <div className="w-10 h-1 rounded-full bg-stone-300 mx-auto mb-1 sm:hidden shrink-0" />
+
+            <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+              <div className="flex items-center gap-2.5">
+                <span className="w-8 h-8 rounded-xl bg-stone-900 text-white flex items-center justify-center shrink-0">
+                  <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                </span>
+                <div>
+                  <span id="sync-modal-title" className="font-semibold text-stone-900 text-sm block">
+                    Синхронизация супругов (FB-10)
+                  </span>
+                  <span className="text-[11px] text-stone-500">
+                    {lastSyncAt
+                      ? `Последний синк: ${new Date(lastSyncAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                      : 'Синхронизация еще не проводилась'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Закрыть окно синхронизации"
+                className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Переключатель вкладок */}
+            <div className="grid grid-cols-2 gap-1 bg-stone-100 p-1 rounded-xl h-10 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setTab('cloud')}
+                className={`h-8 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                  tab === 'cloud' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <Cloud className="w-3.5 h-3.5" />
+                <span>Google Таблица</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('p2p')}
+                className={`h-8 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                  tab === 'p2p' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Ссылка / QR</span>
+              </button>
+            </div>
+
+            {tab === 'cloud' ? (
+              <form onSubmit={handleSaveAndSync} className="space-y-4">
+                {pendingIncomingPair && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 space-y-1">
+                    <div className="font-bold">Получены настройки с телефона партнера!</div>
+                    <p className="text-[11px] text-emerald-800">
+                      Нажмите «Синхронизировать сейчас», чтобы подключиться к общей Google Таблице и объединить базы.
+                    </p>
+                  </div>
+                )}
+
+                {hasUnsyncedChanges && canCloudSync && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>Есть локальные изменения с момента последнего синка. Нажмите «Синхронизировать сейчас».</span>
+                  </div>
+                )}
+
+                {syncError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
+                    Ошибка синка: {syncError}
+                  </div>
+                )}
+
+                <div className="space-y-3 p-3.5 bg-stone-50 rounded-xl border border-stone-200/80">
+                  <div>
+                    <label className="text-xs font-semibold text-stone-700 block mb-1">
+                      URL веб-приложения Google Apps Script
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      value={webhookUrl}
+                      onChange={(e) => setWebhookUrl(e.target.value)}
+                      className="w-full h-9 text-xs font-mono px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-stone-700">
+                        Секретный ключ семьи (SYNC_SECRET)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setSyncSecret(generateRandomSyncSecret())}
+                        className="text-[11px] font-semibold text-stone-600 hover:text-stone-900 underline"
+                      >
+                        Сгенерировать
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Минимум 4 символа"
+                      value={syncSecret}
+                      onChange={(e) => setSyncSecret(e.target.value)}
+                      className="w-full h-9 text-xs font-mono px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                    />
+                  </div>
+
+                  {testResult && (
+                    <div className={`p-2.5 rounded-lg text-xs font-medium ${
+                      testResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                    }`}>
+                      {testResult.msg}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={!canCloudSync || isTesting}
+                      onClick={handleTest}
+                      className="h-10 px-3 rounded-xl bg-white border border-stone-200 hover:bg-stone-100 disabled:opacity-50 text-xs font-semibold text-stone-700 transition shrink-0"
+                    >
+                      {isTesting ? 'Проверка...' : 'Проверить'}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!canCloudSync || isSyncing}
+                      className="flex-1 h-10 bg-stone-900 hover:bg-stone-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                      <span>{isSyncing ? 'Синхронизация...' : 'Синхронизировать сейчас'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Спаривание второго телефона */}
+                {canCloudSync && (
+                  <div className="p-3.5 bg-indigo-50/60 border border-indigo-200/80 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-xs font-bold text-indigo-950 block">Подключить второй телефон</span>
+                        <span className="text-[11px] text-indigo-800">Передайте настройки супругу без ручного ввода URL</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSharePairing}
+                        className="flex-1 h-9 px-3 bg-white border border-indigo-200 hover:bg-indigo-100/60 text-indigo-900 rounded-lg text-xs font-semibold transition inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>Отправить ссылку</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPairQr(!showPairQr)}
+                        className="h-9 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition inline-flex items-center justify-center gap-1.5 shrink-0"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>{showPairQr ? 'Скрыть QR' : 'QR-код'}</span>
+                      </button>
+                    </div>
+                    {showPairQr && pairQrResult?.ok && (
+                      <div className="p-3 bg-white rounded-xl border border-indigo-100 flex flex-col items-center gap-2 animate-fade-in">
+                        <svg
+                          viewBox={`0 0 ${pairQrResult.size + 4} ${pairQrResult.size + 4}`}
+                          className="w-44 h-44 bg-white"
+                          shapeRendering="crispEdges"
+                          aria-label="QR-код для подключения второго телефона"
+                        >
+                          <rect width={pairQrResult.size + 4} height={pairQrResult.size + 4} fill="#ffffff" />
+                          <g transform="translate(2, 2)">
+                            <path d={buildQrSvgPath(pairQrResult.matrix)} fill="#1c1917" />
+                          </g>
+                        </svg>
+                        <span className="text-[11px] text-stone-500 text-center">
+                          Отсканируйте камерой телефона супруга — откроется приложение с готовой настройкой
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Инструкция настройки Google Таблицы */}
+                <div className="border border-stone-200/80 rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowSetupGuide(!showSetupGuide)}
+                    className="w-full px-3.5 py-2.5 bg-stone-50 hover:bg-stone-100 text-left text-xs font-semibold text-stone-800 flex items-center justify-between transition"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>Как подключить личную Google Таблицу (3 шага, без OAuth)</span>
+                    </span>
+                    <span className="text-stone-400">{showSetupGuide ? '▲' : '▼'}</span>
+                  </button>
+                  {showSetupGuide && (
+                    <div className="p-3.5 bg-white text-xs text-stone-600 space-y-2.5 border-t border-stone-100 leading-relaxed">
+                      <p><b>Шаг 1.</b> Создайте новую Google Таблицу на Google Диске и откройте меню <b>Расширения → Apps Script</b>.</p>
+                      <div>
+                        <p className="mb-1.5"><b>Шаг 2.</b> Удалите стандартный текст и вставьте наш скрипт (ваш секретный ключ уже вшит внутрь):</p>
+                        <button
+                          type="button"
+                          onClick={handleCopyGasScript}
+                          className="h-8 px-3 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Скопировать код Code.gs</span>
+                        </button>
+                      </div>
+                      <p>
+                        <b>Шаг 3.</b> Нажмите <b>Начать развертывание → Новое развертывание → Веб-приложение</b>.
+                        В поле <i>«У кого есть доступ»</i> обязательно выберите <b>Все (Anyone)</b>, сохраните, выдайте доступ таблице и вставьте полученный URL выше.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                {/* Секция 1: Отправить изменения */}
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-stone-900">1. Передать свои изменения супругу</span>
+                    <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-stone-200 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setDeltaScope('since')}
+                        className={`px-2 py-1 rounded-md font-semibold transition ${
+                          deltaScope === 'since' ? 'bg-stone-900 text-white' : 'text-stone-600'
+                        }`}
+                      >
+                        Новые
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeltaScope('full')}
+                        className={`px-2 py-1 rounded-md font-semibold transition ${
+                          deltaScope === 'full' ? 'bg-stone-900 text-white' : 'text-stone-600'
+                        }`}
+                      >
+                        Все
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleBuildAndShareDelta(true)}
+                      className="flex-1 h-9 px-3 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-semibold transition inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Отправить / Скопировать</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!outgoingToken) await handleBuildAndShareDelta(false);
+                        setShowDeltaQr(prev => !prev);
+                      }}
+                      className="h-9 px-3 bg-white border border-stone-200 hover:bg-stone-100 text-stone-800 rounded-xl text-xs font-semibold transition inline-flex items-center justify-center gap-1.5 shrink-0"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>QR</span>
+                    </button>
+                  </div>
+
+                  {outgoingSummary && (
+                    <div className="text-[11px] text-stone-600 bg-white p-2.5 rounded-lg border border-stone-200/70 tabular-nums">
+                      Сформирован пакет ({outgoingSummary.bytes} байт): операций — <b>{outgoingSummary.txs}</b>, целей/счетов — <b>{outgoingSummary.others}</b>, удалений — <b>{outgoingSummary.tombstones}</b>.
+                    </div>
+                  )}
+
+                  {showDeltaQr && outgoingToken && (
+                    deltaQrResult?.ok ? (
+                      <div className="p-3 bg-white rounded-xl border border-stone-200 flex flex-col items-center gap-2 animate-fade-in">
+                        <svg
+                          viewBox={`0 0 ${deltaQrResult.size + 4} ${deltaQrResult.size + 4}`}
+                          className="w-48 h-48 bg-white"
+                          shapeRendering="crispEdges"
+                          aria-label="QR-код с дельтой синхронизации"
+                        >
+                          <rect width={deltaQrResult.size + 4} height={deltaQrResult.size + 4} fill="#ffffff" />
+                          <g transform="translate(2, 2)">
+                            <path d={buildQrSvgPath(deltaQrResult.matrix)} fill="#1c1917" />
+                          </g>
+                        </svg>
+                        <span className="text-[11px] text-stone-500">Отсканируйте камерой второго смартфона</span>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
+                        Пакет слишком большой для QR-кода ({deltaQrResult?.byteLength || ''} байт, лимит 858 байт). Отправьте скопированной ссылкой в Telegram.
+                      </div>
+                    )
+                  )}
+                </div>
+
+                {/* Секция 2: Принять от супруга */}
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+                  <label className="text-xs font-bold text-stone-900 block">
+                    2. Принять изменения от супруга
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Вставьте ссылку (?sync=...) или код (fbz1:...) из мессенджера..."
+                    value={incomingInput}
+                    onChange={(e) => setIncomingInput(e.target.value)}
+                    className="w-full text-xs font-mono p-2.5 bg-white border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                  />
+                  {incomingError && (
+                    <div className="text-[11px] text-rose-700 font-medium">{incomingError}</div>
+                  )}
+                  {incomingPreview && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 space-y-1 tabular-nums">
+                      <div className="font-bold flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Пакет готов к объединению:</span>
+                      </div>
+                      <div className="text-[11px]">
+                        Операций: <b>{incomingPreview.txsCount}</b> • Целей/счетов/долгов: <b>{incomingPreview.otherCount}</b> • Удалений: <b>{incomingPreview.delCount}</b>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!incomingPreview}
+                    onClick={handleApplyIncoming}
+                    className="w-full h-10 bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Применить и объединить с базой</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -6909,23 +8921,59 @@
 
       // Хранилища состояния (на чистом первом запуске — пустая база, демо загружается по явному выбору)
       const [transactions, setTransactions] = useState(() =>
-        loadFromStorage('family_budget_txs', [])
+        ensureCollectionTimestamps(loadFromStorage('family_budget_txs', []))
       );
       const [goals, setGoals] = useState(() =>
-        loadFromStorage('family_budget_goals', [])
+        ensureCollectionTimestamps(loadFromStorage('family_budget_goals', []))
       );
       const [recurringPayments, setRecurringPayments] = useState(() =>
-        loadFromStorage('family_budget_recurring', [])
+        ensureCollectionTimestamps(loadFromStorage('family_budget_recurring', []))
       );
       const [debts, setDebts] = useState(() =>
-        loadFromStorage('family_budget_debts', [])
+        ensureCollectionTimestamps(loadFromStorage('family_budget_debts', []))
       );
       const [customCategories, setCustomCategories] = useState(() =>
-        loadFromStorage('family_budget_custom_categories', [])
+        ensureCollectionTimestamps(loadFromStorage('family_budget_custom_categories', []))
       );
       const [plannedCategoryLimits, setPlannedCategoryLimits] = useState(() =>
         loadFromStorage('family_budget_planned_limits', {})
       );
+
+      // Состояние семейной синхронизации (FB-10)
+      const [syncConfig, setSyncConfig] = useState(() =>
+        loadFromStorage('family_budget_sync_config', { webhookUrl: '', syncSecret: '' })
+      );
+      const [lastSyncAt, setLastSyncAt] = useState(() =>
+        loadFromStorage('family_budget_last_sync_at', null)
+      );
+      const [lastMutationAt, setLastMutationAt] = useState(() =>
+        loadFromStorage('family_budget_last_mutation_at', null)
+      );
+      const [syncTombstones, setSyncTombstones] = useState(() =>
+        pruneOldTombstones(loadFromStorage('family_budget_sync_tombstones', []))
+      );
+      const [settingsSyncMeta, setSettingsSyncMeta] = useState(() =>
+        loadFromStorage('family_budget_settings_sync_meta', { plannedCategoryLimits: {} })
+      );
+      const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+      const [isSyncing, setIsSyncing] = useState(false);
+      const [syncError, setSyncError] = useState('');
+      const [pendingIncomingPair, setPendingIncomingPair] = useState(null);
+      const [pendingIncomingDeltaToken, setPendingIncomingDeltaToken] = useState('');
+
+      const isSyncConfigured = useMemo(
+        () => isValidGasWebhookUrl(syncConfig?.webhookUrl) && String(syncConfig?.syncSecret || '').trim().length >= 4,
+        [syncConfig]
+      );
+
+      const hasUnsyncedChanges = useMemo(() => {
+        if (!lastMutationAt) return false;
+        if (!lastSyncAt) return true;
+        const mutMs = Date.parse(lastMutationAt);
+        const syncMs = Date.parse(lastSyncAt);
+        if (!Number.isFinite(mutMs) || !Number.isFinite(syncMs)) return true;
+        return mutMs > syncMs;
+      }, [lastMutationAt, lastSyncAt]);
 
       // Модальные окна
       const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -7066,6 +9114,55 @@
         saveToStorage('family_budget_planned_limits', plannedCategoryLimits, handleStorageQuotaError);
       }, [plannedCategoryLimits, handleStorageQuotaError]);
 
+      useEffect(() => {
+        saveToStorage('family_budget_sync_config', syncConfig, handleStorageQuotaError);
+      }, [syncConfig, handleStorageQuotaError]);
+
+      useEffect(() => {
+        saveToStorage('family_budget_last_sync_at', lastSyncAt, handleStorageQuotaError);
+      }, [lastSyncAt, handleStorageQuotaError]);
+
+      useEffect(() => {
+        saveToStorage('family_budget_last_mutation_at', lastMutationAt, handleStorageQuotaError);
+      }, [lastMutationAt, handleStorageQuotaError]);
+
+      useEffect(() => {
+        saveToStorage('family_budget_sync_tombstones', syncTombstones, handleStorageQuotaError);
+      }, [syncTombstones, handleStorageQuotaError]);
+
+      useEffect(() => {
+        saveToStorage('family_budget_settings_sync_meta', settingsSyncMeta, handleStorageQuotaError);
+      }, [settingsSyncMeta, handleStorageQuotaError]);
+
+      // Перехват входящей ссылки подключения (?pair=...) или P2P-дельты (?sync=...) при открытии URL
+      useEffect(() => {
+        if (typeof window === 'undefined' || !window.location?.search) return;
+        const params = new URLSearchParams(window.location.search);
+        const pairRaw = params.get('pair');
+        const syncRaw = params.get('sync');
+        if (!pairRaw && !syncRaw) return;
+
+        if (pairRaw) {
+          try {
+            const pair = decodePairingPayload(pairRaw);
+            setPendingIncomingPair(pair);
+            setIsSyncModalOpen(true);
+          } catch (err) {
+            showToast(err?.message || 'Не удалось прочитать ссылку подключения');
+          }
+        }
+        if (syncRaw) {
+          setPendingIncomingDeltaToken(syncRaw);
+          setIsSyncModalOpen(true);
+        }
+
+        params.delete('pair');
+        params.delete('sync');
+        const qs = params.toString();
+        const cleanUrl = `${window.location.pathname}${qs ? '?' + qs : ''}${window.location.hash || ''}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }, [showToast]);
+
       // Закрытие модальных окон по Escape
       useEffect(() => {
         const handleKeyDown = (e) => {
@@ -7081,6 +9178,7 @@
             setIsLimitModalOpen(false);
             setIsExportModalOpen(false);
             setIsOnboardingModalOpen(false);
+            setIsSyncModalOpen(false);
           }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -7619,8 +9717,120 @@
         return isTransactionTypeLocked(editingTransactionObj);
       }, [editingTransactionObj]);
 
+      // Хелперы и обработчики синхронизации (FB-10)
+      const markMutated = useCallback((iso = new Date().toISOString()) => {
+        setLastMutationAt(iso);
+        return iso;
+      }, []);
+
+      const localSyncState = useMemo(() => ({
+        transactions,
+        goals,
+        recurringPayments,
+        debts,
+        customCategories,
+        syncTombstones,
+        userProfiles: safeProfiles,
+        safeLimitConfig,
+        plannedCategoryLimits,
+        settingsSyncMeta,
+      }), [
+        transactions,
+        goals,
+        recurringPayments,
+        debts,
+        customCategories,
+        syncTombstones,
+        safeProfiles,
+        safeLimitConfig,
+        plannedCategoryLimits,
+        settingsSyncMeta,
+      ]);
+
+      const applyMergedSyncState = useCallback((nextState) => {
+        if (!nextState) return;
+        setTransactions(nextState.transactions || []);
+        setGoals(nextState.goals || []);
+        setRecurringPayments(nextState.recurringPayments || []);
+        setDebts(nextState.debts || []);
+        setCustomCategories(nextState.customCategories || []);
+        setSyncTombstones(nextState.syncTombstones || []);
+        if (nextState.userProfiles) setUserProfiles(nextState.userProfiles);
+        if (nextState.safeLimitConfig) setSafeLimitConfig(nextState.safeLimitConfig);
+        if (nextState.plannedCategoryLimits) setPlannedCategoryLimits(nextState.plannedCategoryLimits);
+        if (nextState.settingsSyncMeta) setSettingsSyncMeta(nextState.settingsSyncMeta);
+        if (!isOnboarded && (
+          (nextState.transactions && nextState.transactions.length > 0) ||
+          (nextState.goals && nextState.goals.length > 0) ||
+          (nextState.recurringPayments && nextState.recurringPayments.length > 0) ||
+          (nextState.debts && nextState.debts.length > 0)
+        )) {
+          setIsOnboarded(true);
+        }
+      }, [isOnboarded]);
+
+      const handleRunCloudSync = useCallback(async (overrideConfig = null) => {
+        const activeCfg = overrideConfig && overrideConfig.webhookUrl ? overrideConfig : syncConfig;
+        if (!isValidGasWebhookUrl(activeCfg?.webhookUrl) || String(activeCfg?.syncSecret || '').trim().length < 4) {
+          setIsSyncModalOpen(true);
+          return;
+        }
+
+        setIsSyncing(true);
+        setSyncError('');
+        try {
+          // Перекрытие 2 минуты страхует от мелкого расхождения часов устройств при ручной синхронизации
+          const sinceCursor = lastSyncAt
+            ? new Date(Math.max(0, Date.parse(lastSyncAt) - 120000)).toISOString()
+            : null;
+          const res = await syncWithGasWebhook({
+            webhookUrl: activeCfg.webhookUrl,
+            syncSecret: activeCfg.syncSecret,
+            localState: localSyncState,
+            lastSyncAt: sinceCursor,
+          });
+
+          let changedCount = 0;
+          if (res?.delta) {
+            const merged = mergeSyncPayload(localSyncState, res.delta);
+            applyMergedSyncState(merged.nextState);
+            changedCount = merged.stats.totalChanged || 0;
+          }
+
+          setLastSyncAt(res?.serverTime || new Date().toISOString());
+          setLastMutationAt(null);
+          showToast(
+            changedCount > 0
+              ? `Синхронизация завершена: обновлено записей — ${changedCount}`
+              : 'Синхронизация завершена: все данные актуальны'
+          );
+        } catch (err) {
+          const msg = err?.message || 'Ошибка синхронизации с Google Таблицей';
+          setSyncError(msg);
+          showToast(`⚠️ ${msg}`);
+        } finally {
+          setIsSyncing(false);
+        }
+      }, [syncConfig, lastSyncAt, localSyncState, applyMergedSyncState, showToast]);
+
+      const handleTestCloudConnection = useCallback(async (cfg) => {
+        return testGasWebhookConnection(cfg);
+      }, []);
+
+      const handleApplyDecodedDelta = useCallback((remoteDelta) => {
+        const merged = mergeSyncPayload(localSyncState, remoteDelta);
+        applyMergedSyncState(merged.nextState);
+        const s = merged.stats;
+        showToast(
+          s.totalChanged > 0
+            ? `Применено: +${s.added} нов., ${s.updated} обнов., ${s.deleted} удал.`
+            : 'Данные уже совпадают (изменений нет)'
+        );
+      }, [localSyncState, applyMergedSyncState, showToast]);
+
       // Создание пользовательской категории
       const handleCreateCustomCategory = useCallback(({ name, icon, type, bucket }) => {
+        const nowIso = markMutated();
         setCustomCategories(prev => {
           if (prev.some(c => c.name.toLowerCase() === name.toLowerCase())) return prev;
           return [
@@ -7632,27 +9842,33 @@
               color: type === 'income' ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-700',
               type,
               bucket,
+              updatedAt: nowIso,
             },
           ];
         });
         showToast(`Категория «${name}» добавлена`);
-      }, [showToast]);
+      }, [markMutated, showToast]);
 
       const handleDeleteCustomCategory = useCallback((e, catId) => {
         e?.stopPropagation();
         const cat = customCategories.find(c => c.id === catId);
         if (!cat) return;
 
+        const nowIso = markMutated();
         setCustomCategories(prev => prev.filter(c => c.id !== catId));
+        setSyncTombstones(prev => recordDeletionTombstone(prev, 'customCategories', catId, nowIso));
         showToast(`Категория «${cat.name}» удалена`, () => {
-          setCustomCategories(prev => [...prev, cat]);
+          const undoIso = markMutated();
+          setCustomCategories(prev => [...prev, touchItemTimestamp(cat, undoIso)]);
+          setSyncTombstones(prev => removeDeletionTombstone(prev, 'customCategories', catId));
           setToast(null);
         });
-      }, [customCategories, showToast]);
+      }, [customCategories, markMutated, showToast]);
 
       // Сохранение (добавление или редактирование) транзакции
       const handleSaveTransaction = useCallback((payload) => {
         const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, isOpeningBalance, date: finalDate, stayOpen } = payload;
+        const nowIso = markMutated();
 
         if (id) {
           const oldTx = transactions.find(t => t.id === id);
@@ -7672,6 +9888,7 @@
                       ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared', isOpeningBalance: undefined }
                       : { fromWallet: undefined, transferTo: undefined, isOpeningBalance: locked ? t.isOpeningBalance : (isOpeningBalance ? true : undefined) }),
                     date: finalDate,
+                    updatedAt: nowIso,
                   }
                 : t
             )
@@ -7683,7 +9900,7 @@
             setGoals(prev =>
               prev.map(g =>
                 g.id === oldTx.goalId
-                  ? { ...g, current: Math.max(0, (Number(g.current) || 0) + signedDiff) }
+                  ? { ...g, current: Math.max(0, (Number(g.current) || 0) + signedDiff), updatedAt: nowIso }
                   : g
               )
             );
@@ -7694,7 +9911,7 @@
             setDebts(prev =>
               prev.map(d =>
                 d.id === oldTx.debtId
-                  ? { ...d, remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - diff) }
+                  ? { ...d, remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - diff), updatedAt: nowIso }
                   : d
               )
             );
@@ -7717,6 +9934,7 @@
                             ...(hasOtherInOld ? (d.paidMonths || []) : (d.paidMonths || []).filter(m => m !== oldYm)),
                             newYm
                           ])),
+                          updatedAt: nowIso,
                         }
                       : d
                   )
@@ -7735,6 +9953,7 @@
                             ...(hasOtherInOld ? (r.paidMonths || []) : (r.paidMonths || []).filter(m => m !== oldYm)),
                             newYm
                           ])),
+                          updatedAt: nowIso,
                         }
                       : r
                   )
@@ -7758,6 +9977,7 @@
             ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : {}),
             ...(txType !== 'transfer' && isOpeningBalance ? { isOpeningBalance: true } : {}),
             date: finalDate,
+            updatedAt: nowIso,
           };
           setTransactions(prev => [newTx, ...prev]);
           if (!isOnboarded) setIsOnboarded(true);
@@ -7784,7 +10004,7 @@
             }
           }
         }
-      }, [transactions, selectedMonth, isOnboarded, showToast]);
+      }, [transactions, selectedMonth, isOnboarded, markMutated, showToast]);
 
       // Удаление транзакции с мягким Undo-тостом и откатом копилки / долга
       const handleDeleteTransaction = useCallback((id, e) => {
@@ -7792,15 +10012,17 @@
         const index = transactions.findIndex(t => t.id === id);
         if (index === -1) return;
         const tx = transactions[index];
+        const nowIso = markMutated();
 
         setTransactions(prev => prev.filter(t => t.id !== id));
+        setSyncTombstones(prev => recordDeletionTombstone(prev, 'transactions', id, nowIso));
 
         if (tx.goalId) {
           const delta = tx.type === 'income' ? (Number(tx.amount) || 0) : -(Number(tx.amount) || 0);
           setGoals(prev =>
             prev.map(g =>
               g.id === tx.goalId
-                ? { ...g, current: Math.max(0, (Number(g.current) || 0) + delta) }
+                ? { ...g, current: Math.max(0, (Number(g.current) || 0) + delta), updatedAt: nowIso }
                 : g
             )
           );
@@ -7820,6 +10042,7 @@
                     paidMonths: hasOtherThisMonth
                       ? (d.paidMonths || [])
                       : (d.paidMonths || []).filter(m => m !== txMonth),
+                    updatedAt: nowIso,
                   }
                 : d
             )
@@ -7839,6 +10062,7 @@
                     paidMonths: hasOtherThisMonth
                       ? (r.paidMonths || [])
                       : (r.paidMonths || []).filter(m => m !== txMonth),
+                    updatedAt: nowIso,
                   }
                 : r
             )
@@ -7851,18 +10075,20 @@
         }
 
         showToast(`Удалено: «${tx.title}» (${Number(tx.amount).toLocaleString('ru-RU')} ₽)`, () => {
+          const undoIso = markMutated();
           setTransactions(prev => {
             const copy = [...prev];
-            copy.splice(index, 0, tx);
+            copy.splice(index, 0, touchItemTimestamp(tx, undoIso));
             return copy;
           });
+          setSyncTombstones(prev => removeDeletionTombstone(prev, 'transactions', id));
 
           if (tx.goalId) {
             const restoreDelta = tx.type === 'income' ? -(Number(tx.amount) || 0) : (Number(tx.amount) || 0);
             setGoals(prev =>
               prev.map(g =>
                 g.id === tx.goalId
-                  ? { ...g, current: Math.max(0, (Number(g.current) || 0) + restoreDelta) }
+                  ? { ...g, current: Math.max(0, (Number(g.current) || 0) + restoreDelta), updatedAt: undoIso }
                   : g
               )
             );
@@ -7877,6 +10103,7 @@
                       ...d,
                       remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - (Number(tx.amount) || 0)),
                       paidMonths: Array.from(new Set([...(d.paidMonths || []), txMonth])),
+                      updatedAt: undoIso,
                     }
                   : d
               )
@@ -7888,7 +10115,7 @@
             setRecurringPayments(prev =>
               prev.map(r =>
                 r.id === tx.recurringId
-                  ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), txMonth])) }
+                  ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), txMonth])), updatedAt: undoIso }
                   : r
               )
             );
@@ -7896,7 +10123,7 @@
 
           setToast(null);
         });
-      }, [transactions, editingTxId, showToast]);
+      }, [transactions, editingTxId, markMutated, showToast]);
 
       // Пополнение или вывод средств из копилки
       const handleContributeGoal = (e) => {
@@ -7907,6 +10134,7 @@
         const targetGoal = goals.find(g => g.id === selectedGoalId);
         if (!targetGoal) return;
 
+        const nowIso = markMutated();
         const isWithdraw = goalActionMode === 'withdraw';
         const finalDate = goalActionDate || getTargetDateForMonth(selectedMonth);
 
@@ -7918,6 +10146,7 @@
                   current: isWithdraw
                     ? Math.max(0, (Number(g.current) || 0) - num)
                     : (Number(g.current) || 0) + num,
+                  updatedAt: nowIso,
                 }
               : g
           )
@@ -7933,6 +10162,7 @@
           author: currentUser,
           date: finalDate,
           goalId: targetGoal.id,
+          updatedAt: nowIso,
         };
 
         setTransactions(prev => [newTx, ...prev]);
@@ -7961,6 +10191,7 @@
         const targetNum = parseFloat(newGoalTarget);
         if (!newGoalTitle.trim() || !targetNum || targetNum <= 0) return;
         const currentNum = Math.max(0, parseFloat(newGoalCurrent) || 0);
+        const nowIso = markMutated();
 
         if (editingGoalId) {
           setGoals(prev =>
@@ -7973,6 +10204,7 @@
                     current: currentNum,
                     color: newGoalColor,
                     icon: newGoalIcon.trim() || '🎯',
+                    updatedAt: nowIso,
                   }
                 : g
             )
@@ -7986,6 +10218,7 @@
             current: currentNum,
             color: newGoalColor,
             icon: newGoalIcon.trim() || '🎯',
+            updatedAt: nowIso,
           };
           setGoals(prev => [...prev, newGoal]);
           showToast(`Цель «${newGoal.title}» создана`);
@@ -8004,23 +10237,27 @@
         if (idx === -1) return;
         const g = goals[idx];
         const affectedTxIds = transactions.filter(t => t.goalId === goalId).map(t => t.id);
+        const nowIso = markMutated();
 
         setGoals(prev => prev.filter(item => item.id !== goalId));
-        setTransactions(prev => prev.map(t => (t.goalId === goalId ? { ...t, goalId: undefined } : t)));
+        setSyncTombstones(prev => recordDeletionTombstone(prev, 'goals', goalId, nowIso));
+        setTransactions(prev => prev.map(t => (t.goalId === goalId ? { ...t, goalId: undefined, updatedAt: nowIso } : t)));
         if (selectedGoalId === goalId) setSelectedGoalId(null);
 
         showToast(`Цель «${g.title}» удалена`, () => {
+          const undoIso = markMutated();
           setGoals(prev => {
             const copy = [...prev];
-            copy.splice(idx, 0, g);
+            copy.splice(idx, 0, touchItemTimestamp(g, undoIso));
             return copy;
           });
+          setSyncTombstones(prev => removeDeletionTombstone(prev, 'goals', goalId));
           setTransactions(prev =>
-            prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, goalId: goalId } : t))
+            prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, goalId: goalId, updatedAt: undoIso } : t))
           );
           setToast(null);
         });
-      }, [goals, transactions, selectedGoalId, showToast]);
+      }, [goals, transactions, selectedGoalId, markMutated, showToast]);
 
       const openPayRecurringModal = useCallback((rec) => {
         setSelectedRecurringToPay(rec);
@@ -8036,6 +10273,7 @@
         const num = parseFloat(recPayAmount);
         if (!num || num <= 0) return;
 
+        const nowIso = markMutated();
         const finalDate = recPayDate || getTargetDateForMonth(selectedMonth, rec.dueDate);
         const targetYm = finalDate.slice(0, 7);
 
@@ -8049,12 +10287,13 @@
           author: (rec.account || 'shared') === 'personal' ? (rec.author || currentUser) : currentUser,
           date: finalDate,
           recurringId: rec.id,
+          updatedAt: nowIso,
         };
 
         setRecurringPayments(prev =>
           prev.map(r =>
             r.id === rec.id
-              ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), targetYm])) }
+              ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), targetYm])), updatedAt: nowIso }
               : r
           )
         );
@@ -8064,6 +10303,8 @@
         setSelectedRecurringToPay(null);
 
         showToast(`Платеж «${rec.title}» оплачен (${num.toLocaleString('ru-RU')} ₽ за ${finalDate})`, () => {
+          const undoIso = markMutated();
+          setSyncTombstones(tPrev => recordDeletionTombstone(tPrev, 'transactions', newTx.id, undoIso));
           setTransactions(prev => {
             const remaining = prev.filter(t => t.id !== newTx.id);
             const hasOther = remaining.some(t => t.recurringId === rec.id && (t.date || '').startsWith(targetYm));
@@ -8075,6 +10316,7 @@
                       paidMonths: hasOther
                         ? (r.paidMonths || [])
                         : (r.paidMonths || []).filter(m => m !== targetYm),
+                      updatedAt: undoIso,
                     }
                   : r
               )
@@ -8103,6 +10345,7 @@
         const num = parseFloat(newRecAmount);
         if (!newRecTitle.trim() || !num || num <= 0) return;
         const due = Math.min(31, Math.max(1, parseInt(newRecDueDate, 10) || 1));
+        const nowIso = markMutated();
 
         if (editingRecurringId) {
           setRecurringPayments(prev =>
@@ -8117,6 +10360,7 @@
                     author: newRecAuthor,
                     dueDate: due,
                     isMandatory: newRecMandatory,
+                    updatedAt: nowIso,
                   }
                 : r
             )
@@ -8133,6 +10377,7 @@
             dueDate: due,
             isMandatory: newRecMandatory,
             paidMonths: [],
+            updatedAt: nowIso,
           };
           setRecurringPayments(prev => [...prev, newRec]);
           showToast(`Постоянный расход «${newRec.title}» добавлен`);
@@ -8150,22 +10395,26 @@
         if (idx === -1) return;
         const rec = recurringPayments[idx];
         const affectedTxIds = transactions.filter(t => t.recurringId === recId).map(t => t.id);
+        const nowIso = markMutated();
 
         setRecurringPayments(prev => prev.filter(r => r.id !== recId));
-        setTransactions(prev => prev.map(t => (t.recurringId === recId ? { ...t, recurringId: undefined } : t)));
+        setSyncTombstones(prev => recordDeletionTombstone(prev, 'recurringPayments', recId, nowIso));
+        setTransactions(prev => prev.map(t => (t.recurringId === recId ? { ...t, recurringId: undefined, updatedAt: nowIso } : t)));
 
         showToast(`Платеж «${rec.title}» удален`, () => {
+          const undoIso = markMutated();
           setRecurringPayments(prev => {
             const copy = [...prev];
-            copy.splice(idx, 0, rec);
+            copy.splice(idx, 0, touchItemTimestamp(rec, undoIso));
             return copy;
           });
+          setSyncTombstones(prev => removeDeletionTombstone(prev, 'recurringPayments', recId));
           setTransactions(prev =>
-            prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, recurringId: recId } : t))
+            prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, recurringId: recId, updatedAt: undoIso } : t))
           );
           setToast(null);
         });
-      }, [recurringPayments, transactions, showToast]);
+      }, [recurringPayments, transactions, markMutated, showToast]);
 
       const handlePayDebtSubmit = (e) => {
         e?.preventDefault();
@@ -8175,6 +10424,7 @@
         const debt = debts.find(d => d.id === selectedDebtId);
         if (!debt) return;
 
+        const nowIso = markMutated();
         const finalDate = debtPayDate || getTargetDateForMonth(selectedMonth, debt.paymentDay);
         const targetYm = finalDate.slice(0, 7);
 
@@ -8188,6 +10438,7 @@
           author: debtSourceAccount === 'personal' ? debtSourceAuthor : currentUser,
           date: finalDate,
           debtId: debt.id,
+          updatedAt: nowIso,
         };
 
         setDebts(prev =>
@@ -8197,6 +10448,7 @@
                   ...d,
                   remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - num),
                   paidMonths: Array.from(new Set([...(d.paidMonths || []), targetYm])),
+                  updatedAt: nowIso,
                 }
               : d
           )
@@ -8207,6 +10459,8 @@
         setIsPayDebtModalOpen(false);
 
         showToast(`Внесен платёж ${num.toLocaleString('ru-RU')} ₽ по долгу «${debt.title}»`, () => {
+          const undoIso = markMutated();
+          setSyncTombstones(tPrev => recordDeletionTombstone(tPrev, 'transactions', newTx.id, undoIso));
           setTransactions(prev => {
             const remaining = prev.filter(t => t.id !== newTx.id);
             const hasOther = remaining.some(t => t.debtId === debt.id && (t.date || '').startsWith(targetYm));
@@ -8219,6 +10473,7 @@
                       paidMonths: hasOther
                         ? (d.paidMonths || [])
                         : (d.paidMonths || []).filter(m => m !== targetYm),
+                      updatedAt: undoIso,
                     }
                   : d
               )
@@ -8264,6 +10519,7 @@
         const isReg = Boolean(newDebtIsRegular);
         const payNum = isReg ? (parseFloat(newDebtPayment) || Math.round(initNum / 12)) : 0;
         const payDay = Math.min(31, Math.max(1, parseInt(newDebtDay, 10) || 10));
+        const nowIso = markMutated();
 
         if (editingDebtId) {
           setDebts(prev =>
@@ -8281,6 +10537,7 @@
                     author: newDebtAuthor,
                     icon: newDebtIcon.trim() || '💳',
                     color: newDebtColor,
+                    updatedAt: nowIso,
                   }
                 : d
             )
@@ -8300,6 +10557,7 @@
             paidMonths: [],
             icon: newDebtIcon.trim() || '💳',
             color: newDebtColor,
+            updatedAt: nowIso,
           };
           setDebts(prev => [...prev, newDebt]);
           showToast(`Обязательство «${newDebt.title}» добавлено`);
@@ -8320,50 +10578,75 @@
         if (idx === -1) return;
         const debt = debts[idx];
         const affectedTxIds = transactions.filter(t => t.debtId === debtId).map(t => t.id);
+        const nowIso = markMutated();
 
         setDebts(prev => prev.filter(d => d.id !== debtId));
-        setTransactions(prev => prev.map(t => (t.debtId === debtId ? { ...t, debtId: undefined } : t)));
+        setSyncTombstones(prev => recordDeletionTombstone(prev, 'debts', debtId, nowIso));
+        setTransactions(prev => prev.map(t => (t.debtId === debtId ? { ...t, debtId: undefined, updatedAt: nowIso } : t)));
         if (selectedDebtId === debtId) setSelectedDebtId(null);
 
         showToast(`Кредит «${debt.title}» удален`, () => {
+          const undoIso = markMutated();
           setDebts(prev => {
             const copy = [...prev];
-            copy.splice(idx, 0, debt);
+            copy.splice(idx, 0, touchItemTimestamp(debt, undoIso));
             return copy;
           });
+          setSyncTombstones(prev => removeDeletionTombstone(prev, 'debts', debtId));
           setTransactions(prev =>
-            prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, debtId: debtId } : t))
+            prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, debtId: debtId, updatedAt: undoIso } : t))
           );
           setToast(null);
         });
-      }, [debts, transactions, selectedDebtId, showToast]);
+      }, [debts, transactions, selectedDebtId, markMutated, showToast]);
 
       const handleApplyAutoForecastLimits = useCallback(() => {
+        const nowIso = markMutated();
         const nextLimits = { ...plannedCategoryLimits };
+        const updatedCats = [];
         expenseForecastData.rows.forEach(r => {
           if (r.autoSuggested > 0) {
             nextLimits[r.category] = r.autoSuggested;
+            updatedCats.push(r.category);
           }
         });
         setPlannedCategoryLimits(nextLimits);
+        if (updatedCats.length > 0) {
+          setSettingsSyncMeta(prev => {
+            const nextLimitsMeta = { ...(prev?.plannedCategoryLimits || {}) };
+            updatedCats.forEach(cat => {
+              nextLimitsMeta[cat] = { updatedAt: nowIso, deleted: false };
+            });
+            return { ...prev, plannedCategoryLimits: nextLimitsMeta };
+          });
+        }
         showToast('Плановые лимиты заполнены на основе анализа прошлых месяцев');
-      }, [plannedCategoryLimits, expenseForecastData, showToast]);
+      }, [plannedCategoryLimits, expenseForecastData, markMutated, showToast]);
 
       const handleSaveCategoryLimit = useCallback((categoryName) => {
         const val = parseFloat(editingPlanValue);
+        const isDeleted = !Number.isFinite(val) || val <= 0;
+        const nowIso = markMutated();
         setPlannedCategoryLimits(prev => {
           const next = { ...prev };
-          if (!Number.isFinite(val) || val <= 0) {
+          if (isDeleted) {
             delete next[categoryName];
           } else {
             next[categoryName] = Math.round(val);
           }
           return next;
         });
+        setSettingsSyncMeta(prev => ({
+          ...prev,
+          plannedCategoryLimits: {
+            ...(prev?.plannedCategoryLimits || {}),
+            [categoryName]: { updatedAt: nowIso, deleted: isDeleted },
+          },
+        }));
         setEditingPlanCategory(null);
         setEditingPlanValue('');
         showToast(`План для «${categoryName}» сохранен`);
-      }, [editingPlanValue, showToast]);
+      }, [editingPlanValue, markMutated, showToast]);
 
       // ================= ЭКСПОРТ И ИМПОРТ (делегировано в exportImport.js) =================
       const handleDownloadXlsx = () => {
@@ -8481,6 +10764,8 @@
           userProfiles,
           deviceOwner,
           safeLimitConfig,
+          syncTombstones,
+          settingsSyncMeta,
         };
 
         const isMerge = importMode === 'merge';
@@ -8501,19 +10786,66 @@
             }
 
             const ns = result.nextState || {};
-            if (ns.transactions) setTransactions(ns.transactions);
-            if (ns.goals) setGoals(ns.goals);
-            if (ns.recurringPayments) setRecurringPayments(ns.recurringPayments);
-            if (ns.debts) setDebts(ns.debts);
-            if (ns.customCategories) setCustomCategories(ns.customCategories);
+            const nowIso = markMutated();
+            const stampImported = (nextList, prevList) => {
+              const prevIds = new Set((prevList || []).map(item => String(item.id)));
+              return ensureCollectionTimestamps(nextList).map(item =>
+                (!isMerge || !prevIds.has(String(item.id))) ? touchItemTimestamp(item, nowIso) : item
+              );
+            };
+
+            if (ns.transactions) setTransactions(stampImported(ns.transactions, prevSnapshot.transactions));
+            if (ns.goals) setGoals(stampImported(ns.goals, prevSnapshot.goals));
+            if (ns.recurringPayments) setRecurringPayments(stampImported(ns.recurringPayments, prevSnapshot.recurringPayments));
+            if (ns.debts) setDebts(stampImported(ns.debts, prevSnapshot.debts));
+            if (ns.customCategories) setCustomCategories(stampImported(ns.customCategories, prevSnapshot.customCategories));
             if (ns.plannedCategoryLimits) setPlannedCategoryLimits(ns.plannedCategoryLimits);
             if (ns.userProfiles) setUserProfiles(ns.userProfiles);
             if (ns.deviceOwner) setDeviceOwner(ns.deviceOwner);
             if (ns.safeLimitConfig) setSafeLimitConfig(ns.safeLimitConfig);
 
+            // Обновляем метаданные синхронизации настроек и снимаем tombstones для импортированных ID
+            let nextTombstones = Array.isArray(prevSnapshot.syncTombstones) ? [...prevSnapshot.syncTombstones] : [];
+            if (!isMerge) {
+              nextTombstones = [];
+            } else {
+              const importedPairs = [
+                ['transactions', ns.transactions],
+                ['goals', ns.goals],
+                ['recurringPayments', ns.recurringPayments],
+                ['debts', ns.debts],
+                ['customCategories', ns.customCategories],
+              ];
+              importedPairs.forEach(([entityType, list]) => {
+                if (!Array.isArray(list)) return;
+                list.forEach(item => {
+                  if (item?.id !== undefined && item?.id !== null) {
+                    nextTombstones = removeDeletionTombstone(nextTombstones, entityType, item.id);
+                  }
+                });
+              });
+            }
+            setSyncTombstones(nextTombstones);
+
+            setSettingsSyncMeta(prev => {
+              const nextLimitsMeta = { ...(prev?.plannedCategoryLimits || {}) };
+              if (ns.plannedCategoryLimits) {
+                Object.keys(ns.plannedCategoryLimits).forEach(cat => {
+                  nextLimitsMeta[cat] = { updatedAt: nowIso, deleted: false };
+                });
+              }
+              return {
+                ...prev,
+                ...(ns.userProfiles ? { userProfiles: nowIso } : {}),
+                ...(ns.safeLimitConfig ? { safeLimitConfig: nowIso } : {}),
+                plannedCategoryLimits: nextLimitsMeta,
+              };
+            });
+
             setIsExportModalOpen(false);
             setIsOnboarded(true);
             showToast(result.message, () => {
+              markMutated();
               setTransactions(prevSnapshot.transactions);
               setGoals(prevSnapshot.goals);
               setRecurringPayments(prevSnapshot.recurringPayments);
@@ -8523,6 +10855,8 @@
               setUserProfiles(prevSnapshot.userProfiles);
               setDeviceOwner(prevSnapshot.deviceOwner);
               setSafeLimitConfig(prevSnapshot.safeLimitConfig);
+              setSyncTombstones(prevSnapshot.syncTombstones);
+              setSettingsSyncMeta(prevSnapshot.settingsSyncMeta);
               setToast(null);
             });
           } catch (err) {
@@ -8542,6 +10876,8 @@
           debts,
           customCategories,
           plannedCategoryLimits,
+          syncTombstones,
+          settingsSyncMeta,
         };
         setTransactions([]);
         setGoals([]);
@@ -8549,33 +10885,43 @@
         setDebts([]);
         setCustomCategories([]);
         setPlannedCategoryLimits({});
+        setSyncTombstones([]);
+        setSettingsSyncMeta({ plannedCategoryLimits: {} });
+        setLastMutationAt(null);
         setIsExportModalOpen(false);
         setIsOnboarded(true);
         showToast('Все демо-данные очищены — можно начинать с чистого листа!', () => {
+          markMutated();
           setTransactions(prevSnapshot.transactions);
           setGoals(prevSnapshot.goals);
           setRecurringPayments(prevSnapshot.recurringPayments);
           setDebts(prevSnapshot.debts);
           setCustomCategories(prevSnapshot.customCategories);
           setPlannedCategoryLimits(prevSnapshot.plannedCategoryLimits);
+          setSyncTombstones(prevSnapshot.syncTombstones);
+          setSettingsSyncMeta(prevSnapshot.settingsSyncMeta);
           setToast(null);
         });
       };
 
       const handleRestoreDemoData = () => {
-        setTransactions(INITIAL_TRANSACTIONS);
-        setGoals(INITIAL_GOALS);
-        setRecurringPayments(INITIAL_RECURRING);
-        setDebts(INITIAL_DEBTS);
+        const nowIso = markMutated();
+        setTransactions(INITIAL_TRANSACTIONS.map(item => touchItemTimestamp(item, nowIso)));
+        setGoals(INITIAL_GOALS.map(item => touchItemTimestamp(item, nowIso)));
+        setRecurringPayments(INITIAL_RECURRING.map(item => touchItemTimestamp(item, nowIso)));
+        setDebts(INITIAL_DEBTS.map(item => touchItemTimestamp(item, nowIso)));
         setUserProfiles(INITIAL_USER_PROFILES);
         setCustomCategories([]);
         setPlannedCategoryLimits({});
+        setSyncTombstones([]);
+        setSettingsSyncMeta({ userProfiles: nowIso, plannedCategoryLimits: {} });
         setIsExportModalOpen(false);
         setIsOnboarded(true);
         showToast(`Демонстрационные данные v${APP_VERSION} восстановлены`);
       };
 
       const handleCompleteOnboarding = useCallback(({ userProfiles: nextProfiles, deviceOwner: nextOwner, paydays, startDate, balances }) => {
+        const nowIso = markMutated();
         setUserProfiles(nextProfiles);
         setDeviceOwner(nextOwner);
         setCurrentUser(nextOwner);
@@ -8584,6 +10930,11 @@
           ...prev,
           mode: 'paydays',
           paydays,
+        }));
+        setSettingsSyncMeta(prev => ({
+          ...prev,
+          userProfiles: nowIso,
+          safeLimitConfig: nowIso,
         }));
 
         const ts = Date.now();
@@ -8605,6 +10956,7 @@
               author: entry.author,
               isOpeningBalance: true,
               date: startDate || getLocalDateString(),
+              updatedAt: nowIso,
             });
           }
         });
@@ -8616,7 +10968,7 @@
         setIsOnboarded(true);
         setIsOnboardingModalOpen(false);
         showToast('Семейный бюджет настроен!');
-      }, [showToast]);
+      }, [markMutated, showToast]);
 
       // Фильтрация истории операций (поиск по названию, категории и сумме)
       const filteredTransactions = useMemo(() => {
@@ -9047,6 +11399,30 @@
 
                 <button
                   type="button"
+                  onClick={() => setIsSyncModalOpen(true)}
+                  aria-label="Синхронизация супругов"
+                  className={`hidden sm:flex relative h-10 w-10 2xl:w-auto 2xl:px-3 rounded-xl text-xs font-semibold transition border items-center justify-center 2xl:gap-1.5 shrink-0 ${
+                    hasUnsyncedChanges
+                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                      : 'bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-200/80'
+                  }`}
+                  title={
+                    isSyncConfigured
+                      ? (hasUnsyncedChanges ? 'Есть несинхронизированные изменения — откройте окно синка' : 'Синхронизация супругов (настроена)')
+                      : 'Синхронизация супругов (Google Таблица / Ссылка)'
+                  }
+                >
+                  <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncing ? 'animate-spin text-stone-900' : (hasUnsyncedChanges ? 'text-amber-700' : 'text-stone-700')}`} />
+                  <span className="hidden 2xl:inline">
+                    {isSyncing ? 'Синк...' : 'Синк'}
+                  </span>
+                  {hasUnsyncedChanges && !isSyncing && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setIsExportModalOpen(true)}
                   aria-label="Экспорт в Excel, CSV и резервная копия"
                   className="h-9 w-9 sm:h-10 sm:w-auto px-0 sm:px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition border border-stone-200/80 flex items-center justify-center sm:gap-1.5 shrink-0"
@@ -9077,6 +11453,12 @@
                 onOpenOnboarding={() => setIsOnboardingModalOpen(true)}
                 onLoadDemoData={handleRestoreDemoData}
                 onDismissOnboarding={() => setIsOnboarded(true)}
+                isSyncConfigured={isSyncConfigured}
+                hasUnsyncedChanges={hasUnsyncedChanges}
+                lastSyncAt={lastSyncAt}
+                isSyncing={isSyncing}
+                onOpenSyncModal={() => setIsSyncModalOpen(true)}
+                onQuickSync={() => handleRunCloudSync()}
                 reminderSummary={reminderSummary}
                 openPayRecurringModal={openPayRecurringModal}
                 setActiveTab={setActiveTab}
@@ -9429,7 +11811,11 @@
             isOpen={isProfileModalOpen}
             onClose={() => setIsProfileModalOpen(false)}
             userProfiles={safeProfiles}
-            onSaveProfiles={setUserProfiles}
+            onSaveProfiles={(newProfiles) => {
+              const nowIso = markMutated();
+              setUserProfiles(newProfiles);
+              setSettingsSyncMeta(prev => ({ ...prev, userProfiles: nowIso }));
+            }}
             deviceOwner={deviceOwner}
             onSaveDeviceOwner={(owner) => {
               setDeviceOwner(owner);
@@ -9443,7 +11829,9 @@
             onClose={() => setIsLimitModalOpen(false)}
             config={safeLimitConfig}
             onSaveConfig={(newConfig) => {
+              const nowIso = markMutated();
               setSafeLimitConfig(newConfig);
+              setSettingsSyncMeta(prev => ({ ...prev, safeLimitConfig: nowIso }));
               saveToStorage('family_budget_limit_config', newConfig, handleStorageQuotaError);
               showToast('Горизонт безопасного лимита обновлен');
             }}
@@ -9462,6 +11850,10 @@
             onImportFile={handleImportFile}
             onClearAllData={handleClearAllData}
             onRestoreDemoData={handleRestoreDemoData}
+            onOpenSyncModal={() => {
+              setIsExportModalOpen(false);
+              setIsSyncModalOpen(true);
+            }}
           />
 
           <OnboardingModal
@@ -9471,6 +11863,26 @@
             deviceOwner={deviceOwner}
             safeLimitConfig={safeLimitConfig}
             onComplete={handleCompleteOnboarding}
+          />
+
+          <FamilySyncModal
+            isOpen={isSyncModalOpen}
+            onClose={() => setIsSyncModalOpen(false)}
+            syncConfig={syncConfig}
+            onSaveSyncConfig={setSyncConfig}
+            lastSyncAt={lastSyncAt}
+            hasUnsyncedChanges={hasUnsyncedChanges}
+            isSyncing={isSyncing}
+            syncError={syncError}
+            onSyncNow={handleRunCloudSync}
+            onTestConnection={handleTestCloudConnection}
+            localState={localSyncState}
+            pendingIncomingPair={pendingIncomingPair}
+            onClearPendingPair={() => setPendingIncomingPair(null)}
+            pendingIncomingDeltaToken={pendingIncomingDeltaToken}
+            onClearPendingDeltaToken={() => setPendingIncomingDeltaToken('')}
+            onApplyDecodedDelta={handleApplyDecodedDelta}
+            showToast={showToast}
           />
         </div>
       );

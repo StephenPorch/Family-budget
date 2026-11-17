@@ -13,6 +13,9 @@ const moduleFiles = [
   'utils/csv.js',
   'utils/financeCore.js',
   'utils/exportImport.js',
+  'utils/deltaSync.js',
+  'utils/qrGenerator.js',
+  'utils/gasSyncTransport.js',
   'hooks/useFocusTrap.js',
   'hooks/useBackdropDismiss.js',
   'components/ErrorBoundary.jsx',
@@ -24,6 +27,7 @@ const moduleFiles = [
   'components/tabs/GoalsTab.jsx',
   'components/tabs/DebtsPlanTab.jsx',
   'components/modals/ExportBackupModal.jsx',
+  'components/modals/FamilySyncModal.jsx',
   'components/modals/TransactionModal.jsx',
   'components/modals/OnboardingModal.jsx',
   'components/modals/EntityModals.jsx',
@@ -70,7 +74,8 @@ import {
   ListOrdered, Target, ArrowUpRight, ShieldCheck,
   CheckCircle2, TrendingUp, BarChart3, Clock, Lock,
   Download, Upload, FileSpreadsheet, Copy, Bell, Pin,
-  AlertTriangle, AlertCircle, ArrowRightLeft, CreditCard, Users
+  AlertTriangle, AlertCircle, ArrowRightLeft, CreditCard, Users,
+  RefreshCw, Cloud, QrCode, Share2
 } from 'lucide-react';
 `;
 
@@ -87,7 +92,7 @@ const standaloneHeader = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Семейный Бюджет v0.8.2 (Автономная версия)</title>
+  <title>Семейный Бюджет v0.8.5 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -151,6 +156,10 @@ const standaloneHeader = `<!DOCTYPE html>
     const ArrowRightLeft = createSvgIcon(<><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></>);
     const CreditCard = createSvgIcon(<><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></>);
     const Users = createSvgIcon(<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>);
+    const RefreshCw = createSvgIcon(<><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></>);
+    const Cloud = createSvgIcon(<><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></>);
+    const QrCode = createSvgIcon(<><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></>);
+    const Share2 = createSvgIcon(<><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></>);
 `;
 
 const standaloneFooter = `
@@ -168,4 +177,4 @@ const bundledStandaloneBody = processedModulesForStandalone
 
 const finalStandalone = `${standaloneHeader}\n${bundledStandaloneBody}\n${standaloneFooter}`;
 fs.writeFileSync(standalonePath, finalStandalone, 'utf8');
-console.log('standalone.html v0.8.2 generated successfully! Length:', finalStandalone.length);
+console.log('standalone.html v0.8.5 generated successfully! Length:', finalStandalone.length);

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'family-budget-v0.8.2';
+const CACHE_NAME = 'family-budget-v0.8.5';
 const STATIC_ASSETS = [
   './manifest.json',
   './icons/icon-192.png',

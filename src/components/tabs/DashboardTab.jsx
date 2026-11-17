@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Bell, Users, SlidersHorizontal, AlertCircle, TrendingUp,
-  ShieldCheck, CheckCircle2, Target, ArrowUpRight, User, Calendar, Sparkles
+  ShieldCheck, CheckCircle2, Target, ArrowUpRight, User, Calendar, Sparkles, RefreshCw
 } from 'lucide-react';
 import { getCurrentMonthPrefix } from '../../utils/dateUtils.js';
 import { ChartsSection } from '../analytics/ChartsSection.jsx';
@@ -12,6 +12,12 @@ export const DashboardTab = React.memo(function DashboardTab({
   onOpenOnboarding,
   onLoadDemoData,
   onDismissOnboarding,
+  isSyncConfigured,
+  hasUnsyncedChanges,
+  lastSyncAt,
+  isSyncing,
+  onOpenSyncModal,
+  onQuickSync,
   reminderSummary,
   openPayRecurringModal,
   setActiveTab,
@@ -91,6 +97,49 @@ export const DashboardTab = React.memo(function DashboardTab({
           </div>
         </div>
       )}
+
+      {/* КОМПАКТНАЯ МОБИЛЬНАЯ ПЛАШКА СИНХРОНИЗАЦИИ СУПРУГОВ (sm:hidden, не перегружает шапку на 360px) */}
+      <div className="sm:hidden bg-white border border-stone-200/80 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2 shadow-sm">
+        <button
+          type="button"
+          onClick={onOpenSyncModal}
+          className="flex items-center gap-2 min-w-0 text-left"
+        >
+          <span className={`w-2 h-2 rounded-full shrink-0 ${
+            !isSyncConfigured ? 'bg-stone-300' : hasUnsyncedChanges ? 'bg-amber-500' : 'bg-emerald-500'
+          }`} />
+          <span className="text-xs font-semibold text-stone-800 truncate">
+            {!isSyncConfigured
+              ? 'Синхронизация супругов'
+              : hasUnsyncedChanges
+              ? 'Есть новые записи для синка'
+              : lastSyncAt
+              ? `Синк: ${new Date(lastSyncAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+              : 'Синхронизация подключена'}
+          </span>
+        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isSyncConfigured ? (
+            <button
+              type="button"
+              disabled={isSyncing}
+              onClick={onQuickSync}
+              className="h-8 px-2.5 rounded-lg bg-stone-900 text-white text-xs font-semibold inline-flex items-center gap-1 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Синк...' : 'Синк'}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenSyncModal}
+              className="h-8 px-2.5 rounded-lg bg-stone-100 text-stone-800 text-xs font-semibold"
+            >
+              Настроить
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* УМНАЯ НАПОМИНАЛКА О ГОРЯЩИХ И ПРОСРОЧЕННЫХ ОБЯЗАТЕЛЬНЫХ ПЛАТЕЖАХ */}
       {reminderSummary.urgentRecs.length > 0 && (

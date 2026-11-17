@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Wallet, Plus, User, X,
   ChevronRight, ChevronLeft, RotateCcw, LayoutGrid,
-  ListOrdered, Target, ShieldCheck, FileSpreadsheet
+  ListOrdered, Target, ShieldCheck, FileSpreadsheet, RefreshCw
 } from 'lucide-react';
 
 import {
@@ -57,6 +57,21 @@ import { DebtsPlanTab } from './components/tabs/DebtsPlanTab.jsx';
 import { TransactionModal } from './components/modals/TransactionModal.jsx';
 import { OnboardingModal } from './components/modals/OnboardingModal.jsx';
 import { ExportBackupModal } from './components/modals/ExportBackupModal.jsx';
+import { FamilySyncModal } from './components/modals/FamilySyncModal.jsx';
+import {
+  ensureCollectionTimestamps,
+  touchItemTimestamp,
+  pruneOldTombstones,
+  recordDeletionTombstone,
+  removeDeletionTombstone,
+  mergeSyncPayload,
+  decodePairingPayload,
+} from './utils/deltaSync.js';
+import {
+  isValidGasWebhookUrl,
+  testGasWebhookConnection,
+  syncWithGasWebhook,
+} from './utils/gasSyncTransport.js';
 import {
   GoalActionModal,
   GoalFormModal,
@@ -126,23 +141,59 @@ export default function FamilyBudgetApp() {
 
   // Хранилища состояния (на чистом первом запуске — пустая база, демо загружается по явному выбору)
   const [transactions, setTransactions] = useState(() =>
-    loadFromStorage('family_budget_txs', [])
+    ensureCollectionTimestamps(loadFromStorage('family_budget_txs', []))
   );
   const [goals, setGoals] = useState(() =>
-    loadFromStorage('family_budget_goals', [])
+    ensureCollectionTimestamps(loadFromStorage('family_budget_goals', []))
   );
   const [recurringPayments, setRecurringPayments] = useState(() =>
-    loadFromStorage('family_budget_recurring', [])
+    ensureCollectionTimestamps(loadFromStorage('family_budget_recurring', []))
   );
   const [debts, setDebts] = useState(() =>
-    loadFromStorage('family_budget_debts', [])
+    ensureCollectionTimestamps(loadFromStorage('family_budget_debts', []))
   );
   const [customCategories, setCustomCategories] = useState(() =>
-    loadFromStorage('family_budget_custom_categories', [])
+    ensureCollectionTimestamps(loadFromStorage('family_budget_custom_categories', []))
   );
   const [plannedCategoryLimits, setPlannedCategoryLimits] = useState(() =>
     loadFromStorage('family_budget_planned_limits', {})
   );
+
+  // Состояние семейной синхронизации (FB-10)
+  const [syncConfig, setSyncConfig] = useState(() =>
+    loadFromStorage('family_budget_sync_config', { webhookUrl: '', syncSecret: '' })
+  );
+  const [lastSyncAt, setLastSyncAt] = useState(() =>
+    loadFromStorage('family_budget_last_sync_at', null)
+  );
+  const [lastMutationAt, setLastMutationAt] = useState(() =>
+    loadFromStorage('family_budget_last_mutation_at', null)
+  );
+  const [syncTombstones, setSyncTombstones] = useState(() =>
+    pruneOldTombstones(loadFromStorage('family_budget_sync_tombstones', []))
+  );
+  const [settingsSyncMeta, setSettingsSyncMeta] = useState(() =>
+    loadFromStorage('family_budget_settings_sync_meta', { plannedCategoryLimits: {} })
+  );
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [pendingIncomingPair, setPendingIncomingPair] = useState(null);
+  const [pendingIncomingDeltaToken, setPendingIncomingDeltaToken] = useState('');
+
+  const isSyncConfigured = useMemo(
+    () => isValidGasWebhookUrl(syncConfig?.webhookUrl) && String(syncConfig?.syncSecret || '').trim().length >= 4,
+    [syncConfig]
+  );
+
+  const hasUnsyncedChanges = useMemo(() => {
+    if (!lastMutationAt) return false;
+    if (!lastSyncAt) return true;
+    const mutMs = Date.parse(lastMutationAt);
+    const syncMs = Date.parse(lastSyncAt);
+    if (!Number.isFinite(mutMs) || !Number.isFinite(syncMs)) return true;
+    return mutMs > syncMs;
+  }, [lastMutationAt, lastSyncAt]);
 
   // Модальные окна
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -283,6 +334,55 @@ export default function FamilyBudgetApp() {
     saveToStorage('family_budget_planned_limits', plannedCategoryLimits, handleStorageQuotaError);
   }, [plannedCategoryLimits, handleStorageQuotaError]);
 
+  useEffect(() => {
+    saveToStorage('family_budget_sync_config', syncConfig, handleStorageQuotaError);
+  }, [syncConfig, handleStorageQuotaError]);
+
+  useEffect(() => {
+    saveToStorage('family_budget_last_sync_at', lastSyncAt, handleStorageQuotaError);
+  }, [lastSyncAt, handleStorageQuotaError]);
+
+  useEffect(() => {
+    saveToStorage('family_budget_last_mutation_at', lastMutationAt, handleStorageQuotaError);
+  }, [lastMutationAt, handleStorageQuotaError]);
+
+  useEffect(() => {
+    saveToStorage('family_budget_sync_tombstones', syncTombstones, handleStorageQuotaError);
+  }, [syncTombstones, handleStorageQuotaError]);
+
+  useEffect(() => {
+    saveToStorage('family_budget_settings_sync_meta', settingsSyncMeta, handleStorageQuotaError);
+  }, [settingsSyncMeta, handleStorageQuotaError]);
+
+  // Перехват входящей ссылки подключения (?pair=...) или P2P-дельты (?sync=...) при открытии URL
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.location?.search) return;
+    const params = new URLSearchParams(window.location.search);
+    const pairRaw = params.get('pair');
+    const syncRaw = params.get('sync');
+    if (!pairRaw && !syncRaw) return;
+
+    if (pairRaw) {
+      try {
+        const pair = decodePairingPayload(pairRaw);
+        setPendingIncomingPair(pair);
+        setIsSyncModalOpen(true);
+      } catch (err) {
+        showToast(err?.message || 'Не удалось прочитать ссылку подключения');
+      }
+    }
+    if (syncRaw) {
+      setPendingIncomingDeltaToken(syncRaw);
+      setIsSyncModalOpen(true);
+    }
+
+    params.delete('pair');
+    params.delete('sync');
+    const qs = params.toString();
+    const cleanUrl = `${window.location.pathname}${qs ? '?' + qs : ''}${window.location.hash || ''}`;
+    window.history.replaceState({}, document.title, cleanUrl);
+  }, [showToast]);
+
   // Закрытие модальных окон по Escape
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -298,6 +398,7 @@ export default function FamilyBudgetApp() {
         setIsLimitModalOpen(false);
         setIsExportModalOpen(false);
         setIsOnboardingModalOpen(false);
+        setIsSyncModalOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -836,8 +937,120 @@ export default function FamilyBudgetApp() {
     return isTransactionTypeLocked(editingTransactionObj);
   }, [editingTransactionObj]);
 
+  // Хелперы и обработчики синхронизации (FB-10)
+  const markMutated = useCallback((iso = new Date().toISOString()) => {
+    setLastMutationAt(iso);
+    return iso;
+  }, []);
+
+  const localSyncState = useMemo(() => ({
+    transactions,
+    goals,
+    recurringPayments,
+    debts,
+    customCategories,
+    syncTombstones,
+    userProfiles: safeProfiles,
+    safeLimitConfig,
+    plannedCategoryLimits,
+    settingsSyncMeta,
+  }), [
+    transactions,
+    goals,
+    recurringPayments,
+    debts,
+    customCategories,
+    syncTombstones,
+    safeProfiles,
+    safeLimitConfig,
+    plannedCategoryLimits,
+    settingsSyncMeta,
+  ]);
+
+  const applyMergedSyncState = useCallback((nextState) => {
+    if (!nextState) return;
+    setTransactions(nextState.transactions || []);
+    setGoals(nextState.goals || []);
+    setRecurringPayments(nextState.recurringPayments || []);
+    setDebts(nextState.debts || []);
+    setCustomCategories(nextState.customCategories || []);
+    setSyncTombstones(nextState.syncTombstones || []);
+    if (nextState.userProfiles) setUserProfiles(nextState.userProfiles);
+    if (nextState.safeLimitConfig) setSafeLimitConfig(nextState.safeLimitConfig);
+    if (nextState.plannedCategoryLimits) setPlannedCategoryLimits(nextState.plannedCategoryLimits);
+    if (nextState.settingsSyncMeta) setSettingsSyncMeta(nextState.settingsSyncMeta);
+    if (!isOnboarded && (
+      (nextState.transactions && nextState.transactions.length > 0) ||
+      (nextState.goals && nextState.goals.length > 0) ||
+      (nextState.recurringPayments && nextState.recurringPayments.length > 0) ||
+      (nextState.debts && nextState.debts.length > 0)
+    )) {
+      setIsOnboarded(true);
+    }
+  }, [isOnboarded]);
+
+  const handleRunCloudSync = useCallback(async (overrideConfig = null) => {
+    const activeCfg = overrideConfig && overrideConfig.webhookUrl ? overrideConfig : syncConfig;
+    if (!isValidGasWebhookUrl(activeCfg?.webhookUrl) || String(activeCfg?.syncSecret || '').trim().length < 4) {
+      setIsSyncModalOpen(true);
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncError('');
+    try {
+      // Перекрытие 2 минуты страхует от мелкого расхождения часов устройств при ручной синхронизации
+      const sinceCursor = lastSyncAt
+        ? new Date(Math.max(0, Date.parse(lastSyncAt) - 120000)).toISOString()
+        : null;
+      const res = await syncWithGasWebhook({
+        webhookUrl: activeCfg.webhookUrl,
+        syncSecret: activeCfg.syncSecret,
+        localState: localSyncState,
+        lastSyncAt: sinceCursor,
+      });
+
+      let changedCount = 0;
+      if (res?.delta) {
+        const merged = mergeSyncPayload(localSyncState, res.delta);
+        applyMergedSyncState(merged.nextState);
+        changedCount = merged.stats.totalChanged || 0;
+      }
+
+      setLastSyncAt(res?.serverTime || new Date().toISOString());
+      setLastMutationAt(null);
+      showToast(
+        changedCount > 0
+          ? `Синхронизация завершена: обновлено записей — ${changedCount}`
+          : 'Синхронизация завершена: все данные актуальны'
+      );
+    } catch (err) {
+      const msg = err?.message || 'Ошибка синхронизации с Google Таблицей';
+      setSyncError(msg);
+      showToast(`⚠️ ${msg}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [syncConfig, lastSyncAt, localSyncState, applyMergedSyncState, showToast]);
+
+  const handleTestCloudConnection = useCallback(async (cfg) => {
+    return testGasWebhookConnection(cfg);
+  }, []);
+
+  const handleApplyDecodedDelta = useCallback((remoteDelta) => {
+    const merged = mergeSyncPayload(localSyncState, remoteDelta);
+    applyMergedSyncState(merged.nextState);
+    const s = merged.stats;
+    showToast(
+      s.totalChanged > 0
+        ? `Применено: +${s.added} нов., ${s.updated} обнов., ${s.deleted} удал.`
+        : 'Данные уже совпадают (изменений нет)'
+    );
+  }, [localSyncState, applyMergedSyncState, showToast]);
+
   // Создание пользовательской категории
   const handleCreateCustomCategory = useCallback(({ name, icon, type, bucket }) => {
+    const nowIso = markMutated();
     setCustomCategories(prev => {
       if (prev.some(c => c.name.toLowerCase() === name.toLowerCase())) return prev;
       return [
@@ -849,27 +1062,33 @@ export default function FamilyBudgetApp() {
           color: type === 'income' ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-700',
           type,
           bucket,
+          updatedAt: nowIso,
         },
       ];
     });
     showToast(`Категория «${name}» добавлена`);
-  }, [showToast]);
+  }, [markMutated, showToast]);
 
   const handleDeleteCustomCategory = useCallback((e, catId) => {
     e?.stopPropagation();
     const cat = customCategories.find(c => c.id === catId);
     if (!cat) return;
 
+    const nowIso = markMutated();
     setCustomCategories(prev => prev.filter(c => c.id !== catId));
+    setSyncTombstones(prev => recordDeletionTombstone(prev, 'customCategories', catId, nowIso));
     showToast(`Категория «${cat.name}» удалена`, () => {
-      setCustomCategories(prev => [...prev, cat]);
+      const undoIso = markMutated();
+      setCustomCategories(prev => [...prev, touchItemTimestamp(cat, undoIso)]);
+      setSyncTombstones(prev => removeDeletionTombstone(prev, 'customCategories', catId));
       setToast(null);
     });
-  }, [customCategories, showToast]);
+  }, [customCategories, markMutated, showToast]);
 
   // Сохранение (добавление или редактирование) транзакции
   const handleSaveTransaction = useCallback((payload) => {
     const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, isOpeningBalance, date: finalDate, stayOpen } = payload;
+    const nowIso = markMutated();
 
     if (id) {
       const oldTx = transactions.find(t => t.id === id);
@@ -889,6 +1108,7 @@ export default function FamilyBudgetApp() {
                   ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared', isOpeningBalance: undefined }
                   : { fromWallet: undefined, transferTo: undefined, isOpeningBalance: locked ? t.isOpeningBalance : (isOpeningBalance ? true : undefined) }),
                 date: finalDate,
+                updatedAt: nowIso,
               }
             : t
         )
@@ -900,7 +1120,7 @@ export default function FamilyBudgetApp() {
         setGoals(prev =>
           prev.map(g =>
             g.id === oldTx.goalId
-              ? { ...g, current: Math.max(0, (Number(g.current) || 0) + signedDiff) }
+              ? { ...g, current: Math.max(0, (Number(g.current) || 0) + signedDiff), updatedAt: nowIso }
               : g
           )
         );
@@ -911,7 +1131,7 @@ export default function FamilyBudgetApp() {
         setDebts(prev =>
           prev.map(d =>
             d.id === oldTx.debtId
-              ? { ...d, remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - diff) }
+              ? { ...d, remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - diff), updatedAt: nowIso }
               : d
           )
         );
@@ -934,6 +1154,7 @@ export default function FamilyBudgetApp() {
                         ...(hasOtherInOld ? (d.paidMonths || []) : (d.paidMonths || []).filter(m => m !== oldYm)),
                         newYm
                       ])),
+                      updatedAt: nowIso,
                     }
                   : d
               )
@@ -952,6 +1173,7 @@ export default function FamilyBudgetApp() {
                         ...(hasOtherInOld ? (r.paidMonths || []) : (r.paidMonths || []).filter(m => m !== oldYm)),
                         newYm
                       ])),
+                      updatedAt: nowIso,
                     }
                   : r
               )
@@ -975,6 +1197,7 @@ export default function FamilyBudgetApp() {
         ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : {}),
         ...(txType !== 'transfer' && isOpeningBalance ? { isOpeningBalance: true } : {}),
         date: finalDate,
+        updatedAt: nowIso,
       };
       setTransactions(prev => [newTx, ...prev]);
       if (!isOnboarded) setIsOnboarded(true);
@@ -1001,7 +1224,7 @@ export default function FamilyBudgetApp() {
         }
       }
     }
-  }, [transactions, selectedMonth, isOnboarded, showToast]);
+  }, [transactions, selectedMonth, isOnboarded, markMutated, showToast]);
 
   // Удаление транзакции с мягким Undo-тостом и откатом копилки / долга
   const handleDeleteTransaction = useCallback((id, e) => {
@@ -1009,15 +1232,17 @@ export default function FamilyBudgetApp() {
     const index = transactions.findIndex(t => t.id === id);
     if (index === -1) return;
     const tx = transactions[index];
+    const nowIso = markMutated();
 
     setTransactions(prev => prev.filter(t => t.id !== id));
+    setSyncTombstones(prev => recordDeletionTombstone(prev, 'transactions', id, nowIso));
 
     if (tx.goalId) {
       const delta = tx.type === 'income' ? (Number(tx.amount) || 0) : -(Number(tx.amount) || 0);
       setGoals(prev =>
         prev.map(g =>
           g.id === tx.goalId
-            ? { ...g, current: Math.max(0, (Number(g.current) || 0) + delta) }
+            ? { ...g, current: Math.max(0, (Number(g.current) || 0) + delta), updatedAt: nowIso }
             : g
         )
       );
@@ -1037,6 +1262,7 @@ export default function FamilyBudgetApp() {
                 paidMonths: hasOtherThisMonth
                   ? (d.paidMonths || [])
                   : (d.paidMonths || []).filter(m => m !== txMonth),
+                updatedAt: nowIso,
               }
             : d
         )
@@ -1056,6 +1282,7 @@ export default function FamilyBudgetApp() {
                 paidMonths: hasOtherThisMonth
                   ? (r.paidMonths || [])
                   : (r.paidMonths || []).filter(m => m !== txMonth),
+                updatedAt: nowIso,
               }
             : r
         )
@@ -1068,18 +1295,20 @@ export default function FamilyBudgetApp() {
     }
 
     showToast(`Удалено: «${tx.title}» (${Number(tx.amount).toLocaleString('ru-RU')} ₽)`, () => {
+      const undoIso = markMutated();
       setTransactions(prev => {
         const copy = [...prev];
-        copy.splice(index, 0, tx);
+        copy.splice(index, 0, touchItemTimestamp(tx, undoIso));
         return copy;
       });
+      setSyncTombstones(prev => removeDeletionTombstone(prev, 'transactions', id));
 
       if (tx.goalId) {
         const restoreDelta = tx.type === 'income' ? -(Number(tx.amount) || 0) : (Number(tx.amount) || 0);
         setGoals(prev =>
           prev.map(g =>
             g.id === tx.goalId
-              ? { ...g, current: Math.max(0, (Number(g.current) || 0) + restoreDelta) }
+              ? { ...g, current: Math.max(0, (Number(g.current) || 0) + restoreDelta), updatedAt: undoIso }
               : g
           )
         );
@@ -1094,6 +1323,7 @@ export default function FamilyBudgetApp() {
                   ...d,
                   remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - (Number(tx.amount) || 0)),
                   paidMonths: Array.from(new Set([...(d.paidMonths || []), txMonth])),
+                  updatedAt: undoIso,
                 }
               : d
           )
@@ -1105,7 +1335,7 @@ export default function FamilyBudgetApp() {
         setRecurringPayments(prev =>
           prev.map(r =>
             r.id === tx.recurringId
-              ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), txMonth])) }
+              ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), txMonth])), updatedAt: undoIso }
               : r
           )
         );
@@ -1113,7 +1343,7 @@ export default function FamilyBudgetApp() {
 
       setToast(null);
     });
-  }, [transactions, editingTxId, showToast]);
+  }, [transactions, editingTxId, markMutated, showToast]);
 
   // Пополнение или вывод средств из копилки
   const handleContributeGoal = (e) => {
@@ -1124,6 +1354,7 @@ export default function FamilyBudgetApp() {
     const targetGoal = goals.find(g => g.id === selectedGoalId);
     if (!targetGoal) return;
 
+    const nowIso = markMutated();
     const isWithdraw = goalActionMode === 'withdraw';
     const finalDate = goalActionDate || getTargetDateForMonth(selectedMonth);
 
@@ -1135,6 +1366,7 @@ export default function FamilyBudgetApp() {
               current: isWithdraw
                 ? Math.max(0, (Number(g.current) || 0) - num)
                 : (Number(g.current) || 0) + num,
+              updatedAt: nowIso,
             }
           : g
       )
@@ -1150,6 +1382,7 @@ export default function FamilyBudgetApp() {
       author: currentUser,
       date: finalDate,
       goalId: targetGoal.id,
+      updatedAt: nowIso,
     };
 
     setTransactions(prev => [newTx, ...prev]);
@@ -1178,6 +1411,7 @@ export default function FamilyBudgetApp() {
     const targetNum = parseFloat(newGoalTarget);
     if (!newGoalTitle.trim() || !targetNum || targetNum <= 0) return;
     const currentNum = Math.max(0, parseFloat(newGoalCurrent) || 0);
+    const nowIso = markMutated();
 
     if (editingGoalId) {
       setGoals(prev =>
@@ -1190,6 +1424,7 @@ export default function FamilyBudgetApp() {
                 current: currentNum,
                 color: newGoalColor,
                 icon: newGoalIcon.trim() || '🎯',
+                updatedAt: nowIso,
               }
             : g
         )
@@ -1203,6 +1438,7 @@ export default function FamilyBudgetApp() {
         current: currentNum,
         color: newGoalColor,
         icon: newGoalIcon.trim() || '🎯',
+        updatedAt: nowIso,
       };
       setGoals(prev => [...prev, newGoal]);
       showToast(`Цель «${newGoal.title}» создана`);
@@ -1221,23 +1457,27 @@ export default function FamilyBudgetApp() {
     if (idx === -1) return;
     const g = goals[idx];
     const affectedTxIds = transactions.filter(t => t.goalId === goalId).map(t => t.id);
+    const nowIso = markMutated();
 
     setGoals(prev => prev.filter(item => item.id !== goalId));
-    setTransactions(prev => prev.map(t => (t.goalId === goalId ? { ...t, goalId: undefined } : t)));
+    setSyncTombstones(prev => recordDeletionTombstone(prev, 'goals', goalId, nowIso));
+    setTransactions(prev => prev.map(t => (t.goalId === goalId ? { ...t, goalId: undefined, updatedAt: nowIso } : t)));
     if (selectedGoalId === goalId) setSelectedGoalId(null);
 
     showToast(`Цель «${g.title}» удалена`, () => {
+      const undoIso = markMutated();
       setGoals(prev => {
         const copy = [...prev];
-        copy.splice(idx, 0, g);
+        copy.splice(idx, 0, touchItemTimestamp(g, undoIso));
         return copy;
       });
+      setSyncTombstones(prev => removeDeletionTombstone(prev, 'goals', goalId));
       setTransactions(prev =>
-        prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, goalId: goalId } : t))
+        prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, goalId: goalId, updatedAt: undoIso } : t))
       );
       setToast(null);
     });
-  }, [goals, transactions, selectedGoalId, showToast]);
+  }, [goals, transactions, selectedGoalId, markMutated, showToast]);
 
   const openPayRecurringModal = useCallback((rec) => {
     setSelectedRecurringToPay(rec);
@@ -1253,6 +1493,7 @@ export default function FamilyBudgetApp() {
     const num = parseFloat(recPayAmount);
     if (!num || num <= 0) return;
 
+    const nowIso = markMutated();
     const finalDate = recPayDate || getTargetDateForMonth(selectedMonth, rec.dueDate);
     const targetYm = finalDate.slice(0, 7);
 
@@ -1266,12 +1507,13 @@ export default function FamilyBudgetApp() {
       author: (rec.account || 'shared') === 'personal' ? (rec.author || currentUser) : currentUser,
       date: finalDate,
       recurringId: rec.id,
+      updatedAt: nowIso,
     };
 
     setRecurringPayments(prev =>
       prev.map(r =>
         r.id === rec.id
-          ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), targetYm])) }
+          ? { ...r, paidMonths: Array.from(new Set([...(r.paidMonths || []), targetYm])), updatedAt: nowIso }
           : r
       )
     );
@@ -1281,6 +1523,8 @@ export default function FamilyBudgetApp() {
     setSelectedRecurringToPay(null);
 
     showToast(`Платеж «${rec.title}» оплачен (${num.toLocaleString('ru-RU')} ₽ за ${finalDate})`, () => {
+      const undoIso = markMutated();
+      setSyncTombstones(tPrev => recordDeletionTombstone(tPrev, 'transactions', newTx.id, undoIso));
       setTransactions(prev => {
         const remaining = prev.filter(t => t.id !== newTx.id);
         const hasOther = remaining.some(t => t.recurringId === rec.id && (t.date || '').startsWith(targetYm));
@@ -1292,6 +1536,7 @@ export default function FamilyBudgetApp() {
                   paidMonths: hasOther
                     ? (r.paidMonths || [])
                     : (r.paidMonths || []).filter(m => m !== targetYm),
+                  updatedAt: undoIso,
                 }
               : r
           )
@@ -1320,6 +1565,7 @@ export default function FamilyBudgetApp() {
     const num = parseFloat(newRecAmount);
     if (!newRecTitle.trim() || !num || num <= 0) return;
     const due = Math.min(31, Math.max(1, parseInt(newRecDueDate, 10) || 1));
+    const nowIso = markMutated();
 
     if (editingRecurringId) {
       setRecurringPayments(prev =>
@@ -1334,6 +1580,7 @@ export default function FamilyBudgetApp() {
                 author: newRecAuthor,
                 dueDate: due,
                 isMandatory: newRecMandatory,
+                updatedAt: nowIso,
               }
             : r
         )
@@ -1350,6 +1597,7 @@ export default function FamilyBudgetApp() {
         dueDate: due,
         isMandatory: newRecMandatory,
         paidMonths: [],
+        updatedAt: nowIso,
       };
       setRecurringPayments(prev => [...prev, newRec]);
       showToast(`Постоянный расход «${newRec.title}» добавлен`);
@@ -1367,22 +1615,26 @@ export default function FamilyBudgetApp() {
     if (idx === -1) return;
     const rec = recurringPayments[idx];
     const affectedTxIds = transactions.filter(t => t.recurringId === recId).map(t => t.id);
+    const nowIso = markMutated();
 
     setRecurringPayments(prev => prev.filter(r => r.id !== recId));
-    setTransactions(prev => prev.map(t => (t.recurringId === recId ? { ...t, recurringId: undefined } : t)));
+    setSyncTombstones(prev => recordDeletionTombstone(prev, 'recurringPayments', recId, nowIso));
+    setTransactions(prev => prev.map(t => (t.recurringId === recId ? { ...t, recurringId: undefined, updatedAt: nowIso } : t)));
 
     showToast(`Платеж «${rec.title}» удален`, () => {
+      const undoIso = markMutated();
       setRecurringPayments(prev => {
         const copy = [...prev];
-        copy.splice(idx, 0, rec);
+        copy.splice(idx, 0, touchItemTimestamp(rec, undoIso));
         return copy;
       });
+      setSyncTombstones(prev => removeDeletionTombstone(prev, 'recurringPayments', recId));
       setTransactions(prev =>
-        prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, recurringId: recId } : t))
+        prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, recurringId: recId, updatedAt: undoIso } : t))
       );
       setToast(null);
     });
-  }, [recurringPayments, transactions, showToast]);
+  }, [recurringPayments, transactions, markMutated, showToast]);
 
   const handlePayDebtSubmit = (e) => {
     e?.preventDefault();
@@ -1392,6 +1644,7 @@ export default function FamilyBudgetApp() {
     const debt = debts.find(d => d.id === selectedDebtId);
     if (!debt) return;
 
+    const nowIso = markMutated();
     const finalDate = debtPayDate || getTargetDateForMonth(selectedMonth, debt.paymentDay);
     const targetYm = finalDate.slice(0, 7);
 
@@ -1405,6 +1658,7 @@ export default function FamilyBudgetApp() {
       author: debtSourceAccount === 'personal' ? debtSourceAuthor : currentUser,
       date: finalDate,
       debtId: debt.id,
+      updatedAt: nowIso,
     };
 
     setDebts(prev =>
@@ -1414,6 +1668,7 @@ export default function FamilyBudgetApp() {
               ...d,
               remainingAmount: Math.max(0, (Number(d.remainingAmount) || 0) - num),
               paidMonths: Array.from(new Set([...(d.paidMonths || []), targetYm])),
+              updatedAt: nowIso,
             }
           : d
       )
@@ -1424,6 +1679,8 @@ export default function FamilyBudgetApp() {
     setIsPayDebtModalOpen(false);
 
     showToast(`Внесен платёж ${num.toLocaleString('ru-RU')} ₽ по долгу «${debt.title}»`, () => {
+      const undoIso = markMutated();
+      setSyncTombstones(tPrev => recordDeletionTombstone(tPrev, 'transactions', newTx.id, undoIso));
       setTransactions(prev => {
         const remaining = prev.filter(t => t.id !== newTx.id);
         const hasOther = remaining.some(t => t.debtId === debt.id && (t.date || '').startsWith(targetYm));
@@ -1436,6 +1693,7 @@ export default function FamilyBudgetApp() {
                   paidMonths: hasOther
                     ? (d.paidMonths || [])
                     : (d.paidMonths || []).filter(m => m !== targetYm),
+                  updatedAt: undoIso,
                 }
               : d
           )
@@ -1481,6 +1739,7 @@ export default function FamilyBudgetApp() {
     const isReg = Boolean(newDebtIsRegular);
     const payNum = isReg ? (parseFloat(newDebtPayment) || Math.round(initNum / 12)) : 0;
     const payDay = Math.min(31, Math.max(1, parseInt(newDebtDay, 10) || 10));
+    const nowIso = markMutated();
 
     if (editingDebtId) {
       setDebts(prev =>
@@ -1498,6 +1757,7 @@ export default function FamilyBudgetApp() {
                 author: newDebtAuthor,
                 icon: newDebtIcon.trim() || '💳',
                 color: newDebtColor,
+                updatedAt: nowIso,
               }
             : d
         )
@@ -1517,6 +1777,7 @@ export default function FamilyBudgetApp() {
         paidMonths: [],
         icon: newDebtIcon.trim() || '💳',
         color: newDebtColor,
+        updatedAt: nowIso,
       };
       setDebts(prev => [...prev, newDebt]);
       showToast(`Обязательство «${newDebt.title}» добавлено`);
@@ -1537,50 +1798,75 @@ export default function FamilyBudgetApp() {
     if (idx === -1) return;
     const debt = debts[idx];
     const affectedTxIds = transactions.filter(t => t.debtId === debtId).map(t => t.id);
+    const nowIso = markMutated();
 
     setDebts(prev => prev.filter(d => d.id !== debtId));
-    setTransactions(prev => prev.map(t => (t.debtId === debtId ? { ...t, debtId: undefined } : t)));
+    setSyncTombstones(prev => recordDeletionTombstone(prev, 'debts', debtId, nowIso));
+    setTransactions(prev => prev.map(t => (t.debtId === debtId ? { ...t, debtId: undefined, updatedAt: nowIso } : t)));
     if (selectedDebtId === debtId) setSelectedDebtId(null);
 
     showToast(`Кредит «${debt.title}» удален`, () => {
+      const undoIso = markMutated();
       setDebts(prev => {
         const copy = [...prev];
-        copy.splice(idx, 0, debt);
+        copy.splice(idx, 0, touchItemTimestamp(debt, undoIso));
         return copy;
       });
+      setSyncTombstones(prev => removeDeletionTombstone(prev, 'debts', debtId));
       setTransactions(prev =>
-        prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, debtId: debtId } : t))
+        prev.map(t => (affectedTxIds.includes(t.id) ? { ...t, debtId: debtId, updatedAt: undoIso } : t))
       );
       setToast(null);
     });
-  }, [debts, transactions, selectedDebtId, showToast]);
+  }, [debts, transactions, selectedDebtId, markMutated, showToast]);
 
   const handleApplyAutoForecastLimits = useCallback(() => {
+    const nowIso = markMutated();
     const nextLimits = { ...plannedCategoryLimits };
+    const updatedCats = [];
     expenseForecastData.rows.forEach(r => {
       if (r.autoSuggested > 0) {
         nextLimits[r.category] = r.autoSuggested;
+        updatedCats.push(r.category);
       }
     });
     setPlannedCategoryLimits(nextLimits);
+    if (updatedCats.length > 0) {
+      setSettingsSyncMeta(prev => {
+        const nextLimitsMeta = { ...(prev?.plannedCategoryLimits || {}) };
+        updatedCats.forEach(cat => {
+          nextLimitsMeta[cat] = { updatedAt: nowIso, deleted: false };
+        });
+        return { ...prev, plannedCategoryLimits: nextLimitsMeta };
+      });
+    }
     showToast('Плановые лимиты заполнены на основе анализа прошлых месяцев');
-  }, [plannedCategoryLimits, expenseForecastData, showToast]);
+  }, [plannedCategoryLimits, expenseForecastData, markMutated, showToast]);
 
   const handleSaveCategoryLimit = useCallback((categoryName) => {
     const val = parseFloat(editingPlanValue);
+    const isDeleted = !Number.isFinite(val) || val <= 0;
+    const nowIso = markMutated();
     setPlannedCategoryLimits(prev => {
       const next = { ...prev };
-      if (!Number.isFinite(val) || val <= 0) {
+      if (isDeleted) {
         delete next[categoryName];
       } else {
         next[categoryName] = Math.round(val);
       }
       return next;
     });
+    setSettingsSyncMeta(prev => ({
+      ...prev,
+      plannedCategoryLimits: {
+        ...(prev?.plannedCategoryLimits || {}),
+        [categoryName]: { updatedAt: nowIso, deleted: isDeleted },
+      },
+    }));
     setEditingPlanCategory(null);
     setEditingPlanValue('');
     showToast(`План для «${categoryName}» сохранен`);
-  }, [editingPlanValue, showToast]);
+  }, [editingPlanValue, markMutated, showToast]);
 
   // ================= ЭКСПОРТ И ИМПОРТ (делегировано в exportImport.js) =================
   const handleDownloadXlsx = () => {
@@ -1698,6 +1984,8 @@ export default function FamilyBudgetApp() {
       userProfiles,
       deviceOwner,
       safeLimitConfig,
+      syncTombstones,
+      settingsSyncMeta,
     };
 
     const isMerge = importMode === 'merge';
@@ -1718,19 +2006,66 @@ export default function FamilyBudgetApp() {
         }
 
         const ns = result.nextState || {};
-        if (ns.transactions) setTransactions(ns.transactions);
-        if (ns.goals) setGoals(ns.goals);
-        if (ns.recurringPayments) setRecurringPayments(ns.recurringPayments);
-        if (ns.debts) setDebts(ns.debts);
-        if (ns.customCategories) setCustomCategories(ns.customCategories);
+        const nowIso = markMutated();
+        const stampImported = (nextList, prevList) => {
+          const prevIds = new Set((prevList || []).map(item => String(item.id)));
+          return ensureCollectionTimestamps(nextList).map(item =>
+            (!isMerge || !prevIds.has(String(item.id))) ? touchItemTimestamp(item, nowIso) : item
+          );
+        };
+
+        if (ns.transactions) setTransactions(stampImported(ns.transactions, prevSnapshot.transactions));
+        if (ns.goals) setGoals(stampImported(ns.goals, prevSnapshot.goals));
+        if (ns.recurringPayments) setRecurringPayments(stampImported(ns.recurringPayments, prevSnapshot.recurringPayments));
+        if (ns.debts) setDebts(stampImported(ns.debts, prevSnapshot.debts));
+        if (ns.customCategories) setCustomCategories(stampImported(ns.customCategories, prevSnapshot.customCategories));
         if (ns.plannedCategoryLimits) setPlannedCategoryLimits(ns.plannedCategoryLimits);
         if (ns.userProfiles) setUserProfiles(ns.userProfiles);
         if (ns.deviceOwner) setDeviceOwner(ns.deviceOwner);
         if (ns.safeLimitConfig) setSafeLimitConfig(ns.safeLimitConfig);
 
+        // Обновляем метаданные синхронизации настроек и снимаем tombstones для импортированных ID
+        let nextTombstones = Array.isArray(prevSnapshot.syncTombstones) ? [...prevSnapshot.syncTombstones] : [];
+        if (!isMerge) {
+          nextTombstones = [];
+        } else {
+          const importedPairs = [
+            ['transactions', ns.transactions],
+            ['goals', ns.goals],
+            ['recurringPayments', ns.recurringPayments],
+            ['debts', ns.debts],
+            ['customCategories', ns.customCategories],
+          ];
+          importedPairs.forEach(([entityType, list]) => {
+            if (!Array.isArray(list)) return;
+            list.forEach(item => {
+              if (item?.id !== undefined && item?.id !== null) {
+                nextTombstones = removeDeletionTombstone(nextTombstones, entityType, item.id);
+              }
+            });
+          });
+        }
+        setSyncTombstones(nextTombstones);
+
+        setSettingsSyncMeta(prev => {
+          const nextLimitsMeta = { ...(prev?.plannedCategoryLimits || {}) };
+          if (ns.plannedCategoryLimits) {
+            Object.keys(ns.plannedCategoryLimits).forEach(cat => {
+              nextLimitsMeta[cat] = { updatedAt: nowIso, deleted: false };
+            });
+          }
+          return {
+            ...prev,
+            ...(ns.userProfiles ? { userProfiles: nowIso } : {}),
+            ...(ns.safeLimitConfig ? { safeLimitConfig: nowIso } : {}),
+            plannedCategoryLimits: nextLimitsMeta,
+          };
+        });
+
         setIsExportModalOpen(false);
         setIsOnboarded(true);
         showToast(result.message, () => {
+          markMutated();
           setTransactions(prevSnapshot.transactions);
           setGoals(prevSnapshot.goals);
           setRecurringPayments(prevSnapshot.recurringPayments);
@@ -1740,6 +2075,8 @@ export default function FamilyBudgetApp() {
           setUserProfiles(prevSnapshot.userProfiles);
           setDeviceOwner(prevSnapshot.deviceOwner);
           setSafeLimitConfig(prevSnapshot.safeLimitConfig);
+          setSyncTombstones(prevSnapshot.syncTombstones);
+          setSettingsSyncMeta(prevSnapshot.settingsSyncMeta);
           setToast(null);
         });
       } catch (err) {
@@ -1759,6 +2096,8 @@ export default function FamilyBudgetApp() {
       debts,
       customCategories,
       plannedCategoryLimits,
+      syncTombstones,
+      settingsSyncMeta,
     };
     setTransactions([]);
     setGoals([]);
@@ -1766,33 +2105,43 @@ export default function FamilyBudgetApp() {
     setDebts([]);
     setCustomCategories([]);
     setPlannedCategoryLimits({});
+    setSyncTombstones([]);
+    setSettingsSyncMeta({ plannedCategoryLimits: {} });
+    setLastMutationAt(null);
     setIsExportModalOpen(false);
     setIsOnboarded(true);
     showToast('Все демо-данные очищены — можно начинать с чистого листа!', () => {
+      markMutated();
       setTransactions(prevSnapshot.transactions);
       setGoals(prevSnapshot.goals);
       setRecurringPayments(prevSnapshot.recurringPayments);
       setDebts(prevSnapshot.debts);
       setCustomCategories(prevSnapshot.customCategories);
       setPlannedCategoryLimits(prevSnapshot.plannedCategoryLimits);
+      setSyncTombstones(prevSnapshot.syncTombstones);
+      setSettingsSyncMeta(prevSnapshot.settingsSyncMeta);
       setToast(null);
     });
   };
 
   const handleRestoreDemoData = () => {
-    setTransactions(INITIAL_TRANSACTIONS);
-    setGoals(INITIAL_GOALS);
-    setRecurringPayments(INITIAL_RECURRING);
-    setDebts(INITIAL_DEBTS);
+    const nowIso = markMutated();
+    setTransactions(INITIAL_TRANSACTIONS.map(item => touchItemTimestamp(item, nowIso)));
+    setGoals(INITIAL_GOALS.map(item => touchItemTimestamp(item, nowIso)));
+    setRecurringPayments(INITIAL_RECURRING.map(item => touchItemTimestamp(item, nowIso)));
+    setDebts(INITIAL_DEBTS.map(item => touchItemTimestamp(item, nowIso)));
     setUserProfiles(INITIAL_USER_PROFILES);
     setCustomCategories([]);
     setPlannedCategoryLimits({});
+    setSyncTombstones([]);
+    setSettingsSyncMeta({ userProfiles: nowIso, plannedCategoryLimits: {} });
     setIsExportModalOpen(false);
     setIsOnboarded(true);
     showToast(`Демонстрационные данные v${APP_VERSION} восстановлены`);
   };
 
   const handleCompleteOnboarding = useCallback(({ userProfiles: nextProfiles, deviceOwner: nextOwner, paydays, startDate, balances }) => {
+    const nowIso = markMutated();
     setUserProfiles(nextProfiles);
     setDeviceOwner(nextOwner);
     setCurrentUser(nextOwner);
@@ -1801,6 +2150,11 @@ export default function FamilyBudgetApp() {
       ...prev,
       mode: 'paydays',
       paydays,
+    }));
+    setSettingsSyncMeta(prev => ({
+      ...prev,
+      userProfiles: nowIso,
+      safeLimitConfig: nowIso,
     }));
 
     const ts = Date.now();
@@ -1822,6 +2176,7 @@ export default function FamilyBudgetApp() {
           author: entry.author,
           isOpeningBalance: true,
           date: startDate || getLocalDateString(),
+          updatedAt: nowIso,
         });
       }
     });
@@ -1833,7 +2188,7 @@ export default function FamilyBudgetApp() {
     setIsOnboarded(true);
     setIsOnboardingModalOpen(false);
     showToast('Семейный бюджет настроен!');
-  }, [showToast]);
+  }, [markMutated, showToast]);
 
   // Фильтрация истории операций (поиск по названию, категории и сумме)
   const filteredTransactions = useMemo(() => {
@@ -2264,6 +2619,30 @@ export default function FamilyBudgetApp() {
 
             <button
               type="button"
+              onClick={() => setIsSyncModalOpen(true)}
+              aria-label="Синхронизация супругов"
+              className={`hidden sm:flex relative h-10 w-10 2xl:w-auto 2xl:px-3 rounded-xl text-xs font-semibold transition border items-center justify-center 2xl:gap-1.5 shrink-0 ${
+                hasUnsyncedChanges
+                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                  : 'bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-200/80'
+              }`}
+              title={
+                isSyncConfigured
+                  ? (hasUnsyncedChanges ? 'Есть несинхронизированные изменения — откройте окно синка' : 'Синхронизация супругов (настроена)')
+                  : 'Синхронизация супругов (Google Таблица / Ссылка)'
+              }
+            >
+              <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncing ? 'animate-spin text-stone-900' : (hasUnsyncedChanges ? 'text-amber-700' : 'text-stone-700')}`} />
+              <span className="hidden 2xl:inline">
+                {isSyncing ? 'Синк...' : 'Синк'}
+              </span>
+              {hasUnsyncedChanges && !isSyncing && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white" />
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => setIsExportModalOpen(true)}
               aria-label="Экспорт в Excel, CSV и резервная копия"
               className="h-9 w-9 sm:h-10 sm:w-auto px-0 sm:px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition border border-stone-200/80 flex items-center justify-center sm:gap-1.5 shrink-0"
@@ -2294,6 +2673,12 @@ export default function FamilyBudgetApp() {
             onOpenOnboarding={() => setIsOnboardingModalOpen(true)}
             onLoadDemoData={handleRestoreDemoData}
             onDismissOnboarding={() => setIsOnboarded(true)}
+            isSyncConfigured={isSyncConfigured}
+            hasUnsyncedChanges={hasUnsyncedChanges}
+            lastSyncAt={lastSyncAt}
+            isSyncing={isSyncing}
+            onOpenSyncModal={() => setIsSyncModalOpen(true)}
+            onQuickSync={() => handleRunCloudSync()}
             reminderSummary={reminderSummary}
             openPayRecurringModal={openPayRecurringModal}
             setActiveTab={setActiveTab}
@@ -2646,7 +3031,11 @@ export default function FamilyBudgetApp() {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         userProfiles={safeProfiles}
-        onSaveProfiles={setUserProfiles}
+        onSaveProfiles={(newProfiles) => {
+          const nowIso = markMutated();
+          setUserProfiles(newProfiles);
+          setSettingsSyncMeta(prev => ({ ...prev, userProfiles: nowIso }));
+        }}
         deviceOwner={deviceOwner}
         onSaveDeviceOwner={(owner) => {
           setDeviceOwner(owner);
@@ -2660,7 +3049,9 @@ export default function FamilyBudgetApp() {
         onClose={() => setIsLimitModalOpen(false)}
         config={safeLimitConfig}
         onSaveConfig={(newConfig) => {
+          const nowIso = markMutated();
           setSafeLimitConfig(newConfig);
+          setSettingsSyncMeta(prev => ({ ...prev, safeLimitConfig: nowIso }));
           saveToStorage('family_budget_limit_config', newConfig, handleStorageQuotaError);
           showToast('Горизонт безопасного лимита обновлен');
         }}
@@ -2679,6 +3070,10 @@ export default function FamilyBudgetApp() {
         onImportFile={handleImportFile}
         onClearAllData={handleClearAllData}
         onRestoreDemoData={handleRestoreDemoData}
+        onOpenSyncModal={() => {
+          setIsExportModalOpen(false);
+          setIsSyncModalOpen(true);
+        }}
       />
 
       <OnboardingModal
@@ -2688,6 +3083,26 @@ export default function FamilyBudgetApp() {
         deviceOwner={deviceOwner}
         safeLimitConfig={safeLimitConfig}
         onComplete={handleCompleteOnboarding}
+      />
+
+      <FamilySyncModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        syncConfig={syncConfig}
+        onSaveSyncConfig={setSyncConfig}
+        lastSyncAt={lastSyncAt}
+        hasUnsyncedChanges={hasUnsyncedChanges}
+        isSyncing={isSyncing}
+        syncError={syncError}
+        onSyncNow={handleRunCloudSync}
+        onTestConnection={handleTestCloudConnection}
+        localState={localSyncState}
+        pendingIncomingPair={pendingIncomingPair}
+        onClearPendingPair={() => setPendingIncomingPair(null)}
+        pendingIncomingDeltaToken={pendingIncomingDeltaToken}
+        onClearPendingDeltaToken={() => setPendingIncomingDeltaToken('')}
+        onApplyDecodedDelta={handleApplyDecodedDelta}
+        showToast={showToast}
       />
     </div>
   );

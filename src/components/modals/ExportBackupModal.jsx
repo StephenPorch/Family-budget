@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { FileSpreadsheet, Download, Copy, Upload, Trash2, X } from 'lucide-react';
+import { FileSpreadsheet, Download, Copy, Upload, Trash2, X, RefreshCw } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { useBackdropDismiss } from '../../hooks/useBackdropDismiss.js';
 
@@ -15,6 +15,7 @@ export const ExportBackupModal = React.memo(function ExportBackupModal({
   onImportFile,
   onClearAllData,
   onRestoreDemoData,
+  onOpenSyncModal,
 }) {
   const modalRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -53,6 +54,28 @@ export const ExportBackupModal = React.memo(function ExportBackupModal({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {onOpenSyncModal && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenSyncModal();
+            }}
+            className="w-full p-3 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/80 text-left transition flex items-center justify-between gap-3"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-8 h-8 rounded-lg bg-white text-indigo-700 flex items-center justify-center shrink-0 border border-indigo-200/70">
+                <RefreshCw className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-stone-900 truncate">Синхронизация телефонов супругов</div>
+                <div className="text-[11px] text-stone-600 truncate">Google Таблица без OAuth или передача дельты (ссылка / QR)</div>
+              </div>
+            </div>
+            <span className="text-xs font-semibold text-indigo-700 shrink-0">Открыть →</span>
+          </button>
+        )}
 
         {/* 1. Выгрузка в таблицы и для нейронки (4 карточки одинаковой высоты) */}
         <div className="space-y-2.5">

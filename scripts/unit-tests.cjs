@@ -7,6 +7,9 @@ async function runTests() {
   const financeCoreUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'financeCore.js')).href;
   const csvUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'csv.js')).href;
   const exportImportUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'exportImport.js')).href;
+  const deltaSyncUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'deltaSync.js')).href;
+  const qrGeneratorUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'qrGenerator.js')).href;
+  const gasSyncUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'gasSyncTransport.js')).href;
 
   const {
     normalizeImportedDate,
@@ -32,8 +35,20 @@ async function runTests() {
     buildStructuredCsvString,
     parseImportedBackupContent,
   } = await import(exportImportUrl);
+  const {
+    ensureCollectionTimestamps,
+    recordDeletionTombstone,
+    buildSyncDelta,
+    mergeSyncPayload,
+    encodeDeltaPacket,
+    decodeDeltaPacket,
+    encodePairingPayload,
+    decodePairingPayload,
+  } = await import(deltaSyncUrl);
+  const { encodeQrMatrix, buildQrSvgPath } = await import(qrGeneratorUrl);
+  const { isValidGasWebhookUrl, generateGasCodeScript } = await import(gasSyncUrl);
 
-  console.log('🧪 Running Family Budget v0.8.2 Core Unit Tests (Direct ES Module Imports)...');
+  console.log('🧪 Running Family Budget v0.8.5 Core Unit Tests (Direct ES Module Imports)...');
 
   // Test 1: Safe Daily Budget & Cash Gap Exposure (v0.7.0 Fix)
   {
@@ -419,7 +434,155 @@ async function runTests() {
     console.log('  ✅ Test 11 PASSED: Opening balance isolation from monthly flows & CSV/XLSX round-trip');
   }
 
-  console.log('🎉 All 11 test suites in unit-tests.cjs PASSED!');
+  // Test 12: Delta Sync LWW Engine, Tombstones & Share Codecs (v0.8.5 FB-10)
+  {
+    const local = {
+      transactions: ensureCollectionTimestamps([
+        { id: 'tx_1', title: 'Локальная старая', amount: 100, type: 'expense', date: '2026-11-10', updatedAt: '2026-11-10T10:00:00.000Z' },
+        { id: 'tx_2', title: 'Локальная новее', amount: 200, type: 'expense', date: '2026-11-10', updatedAt: '2026-11-10T12:00:00.000Z' },
+        { id: 'tx_del', title: 'Удаленная у супруга', amount: 300, type: 'expense', date: '2026-11-10', updatedAt: '2026-11-10T09:00:00.000Z' },
+        { id: 'tx_tie', title: 'Ничья с удалением', amount: 400, type: 'expense', date: '2026-11-10', updatedAt: '2026-11-10T15:00:00.000Z' },
+      ]),
+      goals: [],
+      recurringPayments: [],
+      debts: [],
+      customCategories: [],
+      syncTombstones: recordDeletionTombstone([], 'transactions', 'tx_resurrect', '2026-11-10T11:00:00.000Z'),
+      userProfiles: { husband: { name: 'Алекс', emoji: '🧔' }, wife: { name: 'Лена', emoji: '👩' } },
+      safeLimitConfig: { mode: 'end_of_month', paydays: [10, 25], deductMandatory: true, deductRecommended: false },
+      plannedCategoryLimits: { 'Продукты': 30000, 'Такси': 5000 },
+      settingsSyncMeta: {
+        userProfiles: '2026-11-10T09:00:00.000Z',
+        safeLimitConfig: '2026-11-10T09:00:00.000Z',
+        plannedCategoryLimits: {
+          'Продукты': { updatedAt: '2026-11-10T09:00:00.000Z', deleted: false },
+          'Такси': { updatedAt: '2026-11-10T09:00:00.000Z', deleted: false },
+        },
+      },
+    };
+
+    const remoteState = {
+      transactions: [
+        { id: 'tx_1', title: 'Удаленная новее', amount: 150, type: 'expense', date: '2026-11-10', updatedAt: '2026-11-10T14:00:00.000Z' },
+        { id: 'tx_2', title: 'Удаленная устаревшая', amount: 999, type: 'expense', date: '2026-11-10', updatedAt: '2026-11-10T08:00:00.000Z' },
+        { id: 'tx_new', title: 'От супруга', amount: 550, type: 'income', date: '2026-11-11', updatedAt: '2026-11-11T10:00:00.000Z' },
+        { id: 'tx_resurrect', title: 'Восстановлено Undo', amount: 700, type: 'expense', date: '2026-11-10', updatedAt: '2026-11-10T16:00:00.000Z' },
+      ],
+      goals: [],
+      recurringPayments: [],
+      debts: [],
+      customCategories: [],
+      syncTombstones: [
+        { entityType: 'transactions', id: 'tx_del', deletedAt: '2026-11-10T13:00:00.000Z' },
+        { entityType: 'transactions', id: 'tx_tie', deletedAt: '2026-11-10T15:00:00.000Z' },
+      ],
+      userProfiles: { husband: { name: 'Александр', emoji: '🧔' }, wife: { name: 'Лена', emoji: '👩' } },
+      plannedCategoryLimits: { 'Продукты': 35000 },
+      settingsSyncMeta: {
+        userProfiles: '2026-11-10T18:00:00.000Z',
+        plannedCategoryLimits: {
+          'Продукты': { updatedAt: '2026-11-10T18:00:00.000Z', deleted: false },
+          'Такси': { updatedAt: '2026-11-10T18:00:00.000Z', deleted: true },
+        },
+      },
+    };
+
+    const delta = buildSyncDelta(remoteState, null);
+    const merged = mergeSyncPayload(local, delta);
+    const ids = merged.nextState.transactions.map(t => t.id);
+
+    assert.strictEqual(merged.nextState.transactions.find(t => t.id === 'tx_1').title, 'Удаленная новее');
+    assert.strictEqual(merged.nextState.transactions.find(t => t.id === 'tx_2').amount, 200);
+    assert.ok(ids.includes('tx_new'), 'remote new tx must be added');
+    assert.ok(!ids.includes('tx_del'), 'newer tombstone must delete local older item');
+    assert.ok(!ids.includes('tx_tie'), 'equal timestamp tombstone must beat edit');
+    assert.ok(ids.includes('tx_resurrect'), 'newer edit/undo must overcome older tombstone');
+    assert.strictEqual(merged.nextState.userProfiles.husband.name, 'Александр');
+    assert.strictEqual(merged.nextState.plannedCategoryLimits['Продукты'], 35000);
+    assert.strictEqual(merged.nextState.plannedCategoryLimits['Такси'], undefined);
+
+    // Idempotency check
+    const secondPass = mergeSyncPayload(merged.nextState, delta);
+    assert.strictEqual(secondPass.stats.totalChanged, 0, 're-applying identical delta must produce 0 changes');
+
+    // URL / compressed packet codecs round-trip
+    const packet = await encodeDeltaPacket(delta);
+    assert.ok(packet.startsWith('fbz1:') || packet.startsWith('fb1:'));
+    const decodedFromUrl = await decodeDeltaPacket(`https://example.github.io/app/?sync=${encodeURIComponent(packet)}`);
+    assert.strictEqual(decodedFromUrl.entities.transactions.length, remoteState.transactions.length);
+
+    const pairToken = encodePairingPayload({ webhookUrl: 'https://script.google.com/macros/s/abc/exec', syncSecret: 'sec-123' });
+    const decodedPair = decodePairingPayload(`https://example.github.io/app/?pair=${encodeURIComponent(pairToken)}`);
+    assert.strictEqual(decodedPair.webhookUrl, 'https://script.google.com/macros/s/abc/exec');
+    assert.strictEqual(decodedPair.syncSecret, 'sec-123');
+
+    console.log('  ✅ Test 12 PASSED: Delta Sync LWW, tombstones, settings sync & URL packet codecs');
+  }
+
+  // Test 13: QR Matrix Structure (ISO 18004) & Google Apps Script Codegen (v0.8.5 FB-10)
+  {
+    const verifyQrMatrix = (qr, minVersion = 1) => {
+      assert.strictEqual(qr.ok, true);
+      assert.ok(qr.version >= minVersion);
+      const n = qr.size;
+      assert.strictEqual(n, qr.version * 4 + 17);
+      assert.strictEqual(qr.matrix.length, n);
+      for (let r = 0; r < n; r++) {
+        assert.strictEqual(qr.matrix[r].length, n);
+        for (let c = 0; c < n; c++) {
+          assert.ok(qr.matrix[r][c] === 0 || qr.matrix[r][c] === 1);
+        }
+      }
+      // Top-left, top-right, bottom-left 7x7 finder outer borders & 3x3 centers
+      const checkFinder = (top, left) => {
+        for (let i = 0; i < 7; i++) {
+          assert.strictEqual(qr.matrix[top][left + i], 1);
+          assert.strictEqual(qr.matrix[top + 6][left + i], 1);
+          assert.strictEqual(qr.matrix[top + i][left], 1);
+          assert.strictEqual(qr.matrix[top + i][left + 6], 1);
+        }
+        assert.strictEqual(qr.matrix[top + 3][left + 3], 1);
+      };
+      checkFinder(0, 0);
+      checkFinder(0, n - 7);
+      checkFinder(n - 7, 0);
+      // Dark module at (4V + 9, 8) === (n - 8, 8)
+      assert.strictEqual(qr.matrix[n - 8][8], 1);
+      // Timing patterns strictly alternate
+      for (let i = 8; i < n - 8; i++) {
+        const expected = i % 2 === 0 ? 1 : 0;
+        assert.strictEqual(qr.matrix[6][i], expected);
+        assert.strictEqual(qr.matrix[i][6], expected);
+      }
+    };
+
+    const shortQr = encodeQrMatrix('https://script.google.com/macros/s/test/exec');
+    verifyQrMatrix(shortQr, 2);
+    const svgPath = buildQrSvgPath(shortQr.matrix);
+    assert.ok(svgPath.startsWith('M') && svgPath.length > 100);
+
+    // Long text forces Version >= 7 (version info blocks)
+    const longQr = encodeQrMatrix('fbp1:' + 'A'.repeat(220));
+    verifyQrMatrix(longQr, 7);
+
+    // >858 bytes triggers clean TOO_LARGE boundary
+    const tooBig = encodeQrMatrix('X'.repeat(900));
+    assert.strictEqual(tooBig.ok, false);
+    assert.strictEqual(tooBig.reason, 'TOO_LARGE');
+
+    // GAS webhook validator & Code.gs JS syntax validation
+    assert.strictEqual(isValidGasWebhookUrl('https://script.google.com/macros/s/demo/exec'), true);
+    assert.strictEqual(isValidGasWebhookUrl('http://insecure.local/exec'), false);
+    assert.strictEqual(isValidGasWebhookUrl('not-a-url'), false);
+
+    const gasCode = generateGasCodeScript('family-secret-"99"');
+    assert.ok(gasCode.includes('"family-secret-\\"99\\""'));
+    assert.doesNotThrow(() => new Function(gasCode), 'Generated Code.gs must be syntactically valid JS');
+
+    console.log('  ✅ Test 13 PASSED: QR Model 2 matrix invariants (v1..v20), TOO_LARGE & Code.gs syntax');
+  }
+
+  console.log('🎉 All 13 test suites in unit-tests.cjs PASSED!');
 }
 
 runTests().catch((err) => {

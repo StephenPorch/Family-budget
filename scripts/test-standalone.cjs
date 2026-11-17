@@ -20,12 +20,17 @@ const requiredDefinitions = [
   'const calculateHorizonDays =',
   'const calculateWalletBalancesWithTransfers =',
   'const buildBudgetXlsxBytes =',
+  'const mergeSyncPayload =',
+  'const encodeQrMatrix =',
+  'const syncWithGasWebhook =',
   'const DashboardTab =',
   'const HistoryTab =',
   'const GoalsTab =',
   'const DebtsPlanTab =',
   'const OnboardingModal =',
+  'const FamilySyncModal =',
   'const ArrowRightLeft = createSvgIcon',
+  'const QrCode = createSvgIcon',
   'function FamilyBudgetApp()',
 ];
 
