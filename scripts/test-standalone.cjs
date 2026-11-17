@@ -24,6 +24,7 @@ const requiredDefinitions = [
   'const HistoryTab =',
   'const GoalsTab =',
   'const DebtsPlanTab =',
+  'const OnboardingModal =',
   'const ArrowRightLeft = createSvgIcon',
   'function FamilyBudgetApp()',
 ];

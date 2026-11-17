@@ -9,7 +9,8 @@ export const TransactionRow = React.memo(function TransactionRow({
   onEdit,
   onDelete,
 }) {
-  const catObj = getCategoryMeta(tx.category, tx.type, customCategories);
+  const isOpening = Boolean(tx.isOpeningBalance);
+  const catObj = getCategoryMeta(tx.category, tx.type, customCategories, isOpening);
   const isTransfer = tx.type === 'transfer';
   const isExpense = tx.type === 'expense';
   const isShared = (tx.account || 'shared') === 'shared';
@@ -64,6 +65,11 @@ export const TransactionRow = React.memo(function TransactionRow({
                 <span>Перевод</span>
               </span>
             )}
+            {isOpening && (
+              <span className="h-5 px-1.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/70 text-[11px] font-medium inline-flex items-center shrink-0">
+                Начальный остаток
+              </span>
+            )}
           </div>
           <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5 truncate">
             <span className="truncate font-medium text-stone-600">{catObj.name}</span>
@@ -87,8 +93,8 @@ export const TransactionRow = React.memo(function TransactionRow({
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isTransfer ? 'text-indigo-700' : isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
-          {isTransfer ? '⇄ ' : isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
+        <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isOpening ? 'text-sky-700' : isTransfer ? 'text-indigo-700' : isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
+          {isOpening ? (isExpense ? '−' : '') : isTransfer ? '⇄ ' : isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
         </div>
         <button
           type="button"

@@ -204,6 +204,14 @@
     // ============================================================================
     const APP_VERSION = '0.8.2';
 
+    const hasStoredKey = (key) => {
+      try {
+        return localStorage.getItem(key) !== null;
+      } catch {
+        return false;
+      }
+    };
+
     // Безопасная загрузка и сохранение в LocalStorage
     const loadFromStorage = (key, fallback) => {
       try {
@@ -275,6 +283,11 @@
       { id: 'rec_5', title: 'Мобильная связь (2 номера)', amount: 1400, category: 'Связь и интернет', account: 'shared', author: 'wife', dueDate: 27, isMandatory: true, paidMonths: [] },
       { id: 'rec_4', title: 'Детский сад / Секции', amount: 12000, category: 'Дети и секции', account: 'shared', author: 'wife', dueDate: 28, isMandatory: true, paidMonths: [] },
     ];
+
+    const EMPTY_USER_PROFILES = {
+      husband: { id: 'husband', name: 'Партнер 1', emoji: '🧔🏻‍♂️', color: 'blue' },
+      wife: { id: 'wife', name: 'Партнер 2', emoji: '👩🏼', color: 'rose' },
+    };
 
     const INITIAL_USER_PROFILES = {
       husband: { id: 'husband', name: 'Женя', emoji: '🧔🏻‍♂️', color: 'blue' },
@@ -605,8 +618,17 @@
     // ============================================================================
     // MODULE: src/utils/financeCore.js
     // ============================================================================
-    const getCategoryMeta = (categoryName, type, customCategories = []) => {
+    const getCategoryMeta = (categoryName, type, customCategories = [], isOpeningBalance = false) => {
       const normName = (categoryName || '').trim().toLowerCase();
+      if (isOpeningBalance || normName === 'начальный остаток') {
+        return {
+          id: 'opening_balance',
+          name: categoryName || 'Начальный остаток',
+          icon: '🏦',
+          color: 'bg-sky-50 text-sky-700',
+          bucket: 'opening',
+        };
+      }
       if (type === 'transfer' || normName === 'перевод между счетами' || normName === 'перевод') {
         return {
           id: 'transfer',
@@ -842,7 +864,8 @@
     const getTxSignature = (tx) => {
       const fromW = tx.fromWallet || '';
       const toW = tx.transferTo || '';
-      return `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${normAccountForSig(tx.account)}|${fromW}|${toW}`;
+      const openingFlag = tx.isOpeningBalance ? 'opening' : '';
+      return `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${normAccountForSig(tx.account)}|${fromW}|${toW}|${openingFlag}`;
     };
 
     // Безопасное слияние (Merge) транзакций с фильтрацией дубликатов по ID и сигнатуре
@@ -909,6 +932,7 @@
       let sharedPoolTransferOut = 0;
 
       for (const tx of transactions) {
+        if (tx.isOpeningBalance) continue;
         const ym = (tx.date || '').slice(0, 7);
         if (targetYm && targetYm !== 'all' && ym !== targetYm) continue;
 
@@ -1020,7 +1044,7 @@
 
       const pastMonthsSet = new Set();
       for (const tx of transactions) {
-        if (tx.type !== 'expense') continue;
+        if (tx.type !== 'expense' || tx.isOpeningBalance) continue;
         const ym = (tx.date || '').slice(0, 7);
         if (ym && ym < targetYm) pastMonthsSet.add(ym);
       }
@@ -1028,7 +1052,7 @@
 
       const byCat = {};
       for (const tx of transactions) {
-        if (tx.type !== 'expense') continue;
+        if (tx.type !== 'expense' || tx.isOpeningBalance) continue;
         const cat = tx.categoryId || tx.category || 'Прочее';
         if (recCategorySet.has(cat.toLowerCase())) continue;
         if (!byCat[cat]) byCat[cat] = { pastTotal: 0, currentSpent: 0 };
@@ -1150,6 +1174,7 @@
         ...[...transactions]
           .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
           .map(t => {
+            const isOpening = Boolean(t.isOpeningBalance);
             const isTransfer = t.type === 'transfer';
             const fromW = isTransfer ? getWalletKeyFromTx(t) : null;
             const toW = isTransfer
@@ -1160,7 +1185,11 @@
             const routeLabel = isTransfer
               ? `${getWalletDisplayLabel(safeProfiles, fromW)} → ${getWalletDisplayLabel(safeProfiles, toW)}`
               : '';
-            const typeLabel = isTransfer ? 'Перевод' : (t.type === 'income' ? 'Доход' : 'Расход');
+            const typeLabel = isOpening
+              ? 'Начальный остаток'
+              : isTransfer
+              ? 'Перевод'
+              : (t.type === 'income' ? 'Доход' : 'Расход');
             const accountLabel = isTransfer
               ? 'Между счетами'
               : ((t.account || 'shared') === 'shared' ? 'Общий котел' : 'Личный');
@@ -1172,7 +1201,7 @@
               typeLabel,
               t.category || '',
               t.title || '',
-              Number(t.amount) || 0,
+              isOpening && t.type === 'expense' ? -(Number(t.amount) || 0) : (Number(t.amount) || 0),
               accountLabel,
               t.author === 'wife' ? p2Name : p1Name,
               routeLabel,
@@ -1386,6 +1415,7 @@
             t.recurringId ? `rec:${t.recurringId}` : '',
             t.transferTo ? `to:${t.transferTo}` : '',
             t.fromWallet ? `from:${t.fromWallet}` : '',
+            t.isOpeningBalance ? 'opening:1' : '',
           ].filter(Boolean).join('|');
 
           lines.push(toCsvLine([
@@ -1478,7 +1508,8 @@
             ? `${t.fromWallet || getWalletKeyFromTx(t)}->${t.transferTo || 'shared'}`
             : (t.account || 'shared');
           const authStr = t.author === 'wife' ? p2Name : p1Name;
-          return `${t.date};${t.type};${t.category};${t.title};${t.amount};${accStr};${authStr}`;
+          const typeStr = t.isOpeningBalance ? `opening(${t.type})` : t.type;
+          return `${t.date};${typeStr};${t.category};${t.title};${t.amount};${accStr};${authStr}`;
         }),
       ];
       return lines.join('\n');
@@ -1569,6 +1600,7 @@
             const recLink = extraParts.find(x => x.startsWith('rec:'))?.slice(4);
             const toLink = extraParts.find(x => x.startsWith('to:'))?.slice(3);
             const fromLink = extraParts.find(x => x.startsWith('from:'))?.slice(5);
+            const isOpening = extraParts.includes('opening:1');
             const parsedType = (dirOrStatus === 'transfer' || dirOrStatus === 'Перевод')
               ? 'transfer'
               : (dirOrStatus === 'income' || dirOrStatus === 'Доход' ? 'income' : 'expense');
@@ -1586,6 +1618,7 @@
               ...(recLink ? { recurringId: recLink } : {}),
               ...(toLink ? { transferTo: toLink } : {}),
               ...(fromLink ? { fromWallet: fromLink } : {}),
+              ...(isOpening ? { isOpeningBalance: true } : {}),
             });
           } else if (recType === 'RECURRING') {
             nextRecs.push({
@@ -1893,7 +1926,8 @@
       onEdit,
       onDelete,
     }) {
-      const catObj = getCategoryMeta(tx.category, tx.type, customCategories);
+      const isOpening = Boolean(tx.isOpeningBalance);
+      const catObj = getCategoryMeta(tx.category, tx.type, customCategories, isOpening);
       const isTransfer = tx.type === 'transfer';
       const isExpense = tx.type === 'expense';
       const isShared = (tx.account || 'shared') === 'shared';
@@ -1948,6 +1982,11 @@
                     <span>Перевод</span>
                   </span>
                 )}
+                {isOpening && (
+                  <span className="h-5 px-1.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/70 text-[11px] font-medium inline-flex items-center shrink-0">
+                    Начальный остаток
+                  </span>
+                )}
               </div>
               <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5 truncate">
                 <span className="truncate font-medium text-stone-600">{catObj.name}</span>
@@ -1971,8 +2010,8 @@
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isTransfer ? 'text-indigo-700' : isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
-              {isTransfer ? '⇄ ' : isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
+            <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isOpening ? 'text-sky-700' : isTransfer ? 'text-indigo-700' : isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
+              {isOpening ? (isExpense ? '−' : '') : isTransfer ? '⇄ ' : isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
             </div>
             <button
               type="button"
@@ -2564,6 +2603,10 @@
     // MODULE: src/components/tabs/DashboardTab.jsx
     // ============================================================================
     const DashboardTab = React.memo(function DashboardTab({
+      isOnboarded,
+      onOpenOnboarding,
+      onLoadDemoData,
+      onDismissOnboarding,
       reminderSummary,
       openPayRecurringModal,
       setActiveTab,
@@ -2602,6 +2645,48 @@
 
       return (
         <div className="space-y-5 animate-fade-in">
+          {/* ПАНЕЛЬ БЫСТРОГО СТАРТА ПРИ ЧИСТОМ ПЕРВОМ ЗАПУСКЕ */}
+          {!isOnboarded && (
+            <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-stone-900 text-amber-300 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-stone-900">
+                    Чистый старт: настройте бюджет за 30 секунд
+                  </div>
+                  <p className="text-xs text-stone-600 mt-0.5 leading-relaxed">
+                    Укажите имена партнеров, чей это телефон и текущие остатки на счетах — они зададут верный баланс без искажения доходов месяца.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={onOpenOnboarding}
+                  className="h-9 px-3.5 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center"
+                >
+                  Настроить счета и остатки
+                </button>
+                <button
+                  type="button"
+                  onClick={onLoadDemoData}
+                  className="h-9 px-3.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition inline-flex items-center"
+                >
+                  Загрузить демо-пример
+                </button>
+                <button
+                  type="button"
+                  onClick={onDismissOnboarding}
+                  className="h-9 px-3 rounded-xl text-stone-500 hover:text-stone-900 hover:bg-stone-100 text-xs font-medium transition inline-flex items-center"
+                >
+                  Скрыть
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* УМНАЯ НАПОМИНАЛКА О ГОРЯЩИХ И ПРОСРОЧЕННЫХ ОБЯЗАТЕЛЬНЫХ ПЛАТЕЖАХ */}
           {reminderSummary.urgentRecs.length > 0 && (
             <div className="bg-amber-50/95 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
@@ -4318,6 +4403,7 @@
       const [transferTo, setTransferTo] = useState('shared');
       const [txDate, setTxDate] = useState(getLocalDateString);
       const [isBatchReceiptMode, setIsBatchReceiptMode] = useState(false);
+      const [isOpeningBalance, setIsOpeningBalance] = useState(false);
 
       const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
       const [isManagingCategories, setIsManagingCategories] = useState(false);
@@ -4373,6 +4459,7 @@
           setTxAuthor(initialTx.author || currentUser);
           setTransferTo(initialTx.transferTo || 'shared');
           setTxDate(initialTx.date || getLocalDateString());
+          setIsOpeningBalance(Boolean(initialTx.isOpeningBalance));
         } else {
           setAmount('');
           setTxTitle('');
@@ -4387,6 +4474,7 @@
           setTransferTo(presetConfig?.transferTo || (fromW === 'shared' ? (currentUser === 'wife' ? 'wife' : 'husband') : 'shared'));
           setTxDate(presetConfig?.date || getLocalDateString());
           setIsBatchReceiptMode(Boolean(presetConfig?.batchMode));
+          setIsOpeningBalance(Boolean(presetConfig?.isOpeningBalance));
         }
         setIsAddingCustomCategory(false);
         setIsManagingCategories(false);
@@ -4406,6 +4494,7 @@
         setTxType(newType);
         setIsAddingCustomCategory(false);
         if (newType === 'transfer') {
+          setIsOpeningBalance(false);
           const fromW = selectedAccount === 'shared' ? 'shared' : (txAuthor === 'wife' ? 'wife' : 'husband');
           if (fromW === 'shared' && transferTo === 'shared') {
             setSelectedAccount('personal');
@@ -4465,14 +4554,17 @@
             stayOpen,
           });
         } else {
+          const finalCategory = isOpeningBalance ? 'Начальный остаток' : selectedCategory;
+          const defaultTitle = isOpeningBalance ? 'Начальный остаток счета' : selectedCategory;
           onSaveTransaction({
             id: initialTx?.id || null,
             amount: num,
-            title: txTitle.trim() || selectedCategory,
+            title: txTitle.trim() || defaultTitle,
             type: txType,
-            category: selectedCategory,
+            category: finalCategory,
             account: selectedAccount,
             author: txAuthor,
+            isOpeningBalance: Boolean(isOpeningBalance),
             date: txDate || getLocalDateString(),
             stayOpen,
           });
@@ -4828,118 +4920,138 @@
                     </div>
                   </div>
 
-                  {/* Категории — все кнопки фиксированной высоты h-10 */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-stone-600">
-                        Категория
-                      </label>
-                      <div className="flex items-center gap-2">
-                        {customCategories.some(c => (txType === 'income' ? c.type === 'income' : c.type !== 'income')) && (
-                          <button
-                            type="button"
-                            onClick={() => setIsManagingCategories(!isManagingCategories)}
-                            className="text-xs font-medium text-stone-600 hover:text-stone-900"
-                          >
-                            {isManagingCategories ? 'Готово' : 'Изм.'}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setIsAddingCustomCategory(!isAddingCustomCategory)}
-                          className="text-xs font-semibold text-stone-700 hover:text-stone-900"
-                        >
-                          {isAddingCustomCategory ? 'Отмена' : '+ Своя'}
-                        </button>
-                      </div>
+                  {!isLockedType && (
+                    <label className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-sky-50/70 border border-sky-200/70 text-xs text-stone-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={isOpeningBalance}
+                        onChange={(e) => setIsOpeningBalance(e.target.checked)}
+                        className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900 shrink-0"
+                      />
+                      <span className="leading-snug">
+                        <strong className="text-stone-900">Начальный остаток счета</strong> (меняет баланс кошелька без учета в доходах и тратах месяца)
+                      </span>
+                    </label>
+                  )}
+
+                  {isOpeningBalance ? (
+                    <div className="p-3 bg-sky-50 rounded-xl border border-sky-200 text-xs text-sky-900 leading-relaxed">
+                      🏦 Запись задаст стартовый остаток для выбранного кошелька на дату <b>{txDate}</b> и не повлияет на графики 50/30/20 и доходы месяца.
                     </div>
-
-                    {isAddingCustomCategory && (
-                      <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl mb-3 space-y-2 animate-fade-in">
+                  ) : (
+                    /* Категории — все кнопки фиксированной высоты h-10 */
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-medium text-stone-600">
+                          Категория
+                        </label>
                         <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            placeholder="🏷️"
-                            value={newCatIcon}
-                            onChange={(e) => setNewCatIcon(e.target.value)}
-                            aria-label="Эмодзи категории"
-                            className="w-10 h-9 text-center text-base bg-white border border-stone-200 rounded-lg focus:outline-none shrink-0"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Название категории..."
-                            value={newCatName}
-                            onChange={(e) => setNewCatName(e.target.value)}
-                            aria-label="Название новой категории"
-                            className="flex-1 h-9 text-xs px-3 bg-white border border-stone-200 rounded-lg focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleAddCategory}
-                            aria-label="Сохранить категорию"
-                            className="w-9 h-9 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-stone-800 transition flex items-center justify-center shrink-0"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                        </div>
-                        {txType === 'expense' && (
-                          <div className="flex items-center justify-between text-xs pt-1">
-                            <span className="text-stone-600">Корзина 50/30/20:</span>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setNewCatBucket('base')}
-                                className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
-                                  newCatBucket === 'base' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
-                                }`}
-                              >
-                                🏠 База (50%)
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setNewCatBucket('wants')}
-                                className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
-                                  newCatBucket === 'wants' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
-                                }`}
-                              >
-                                ☕ Хотелки (30%)
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-3 gap-2">
-                      {activeCategories.map(c => (
-                        <div key={c.id} className="relative">
-                          <button
-                            type="button"
-                            disabled={isLockedType}
-                            onClick={() => setSelectedCategory(c.name)}
-                            className={`w-full h-10 px-2.5 rounded-xl flex items-center gap-2 text-left border transition ${
-                              selectedCategory === c.name
-                                ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
-                                : 'border-stone-200/80 bg-stone-50 text-stone-700 hover:bg-stone-100'
-                            } ${isLockedType ? 'opacity-75 cursor-not-allowed' : ''}`}
-                          >
-                            <span className="text-sm shrink-0">{c.icon}</span>
-                            <span className="text-xs font-medium truncate">{c.name}</span>
-                          </button>
-                          {isManagingCategories && c.id.startsWith('cat_') && (
+                          {customCategories.some(c => (txType === 'income' ? c.type === 'income' : c.type !== 'income')) && (
                             <button
                               type="button"
-                              onClick={(e) => onDeleteCustomCategory(e, c.id)}
-                              aria-label={`Удалить категорию ${c.name}`}
-                              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow"
+                              onClick={() => setIsManagingCategories(!isManagingCategories)}
+                              className="text-xs font-medium text-stone-600 hover:text-stone-900"
                             >
-                              ×
+                              {isManagingCategories ? 'Готово' : 'Изм.'}
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingCustomCategory(!isAddingCustomCategory)}
+                            className="text-xs font-semibold text-stone-700 hover:text-stone-900"
+                          >
+                            {isAddingCustomCategory ? 'Отмена' : '+ Своя'}
+                          </button>
                         </div>
-                      ))}
+                      </div>
+
+                      {isAddingCustomCategory && (
+                        <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl mb-3 space-y-2 animate-fade-in">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="🏷️"
+                              value={newCatIcon}
+                              onChange={(e) => setNewCatIcon(e.target.value)}
+                              aria-label="Эмодзи категории"
+                              className="w-10 h-9 text-center text-base bg-white border border-stone-200 rounded-lg focus:outline-none shrink-0"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Название категории..."
+                              value={newCatName}
+                              onChange={(e) => setNewCatName(e.target.value)}
+                              aria-label="Название новой категории"
+                              className="flex-1 h-9 text-xs px-3 bg-white border border-stone-200 rounded-lg focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleAddCategory}
+                              aria-label="Сохранить категорию"
+                              className="w-9 h-9 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-stone-800 transition flex items-center justify-center shrink-0"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          </div>
+                          {txType === 'expense' && (
+                            <div className="flex items-center justify-between text-xs pt-1">
+                              <span className="text-stone-600">Корзина 50/30/20:</span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setNewCatBucket('base')}
+                                  className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
+                                    newCatBucket === 'base' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
+                                  }`}
+                                >
+                                  🏠 База (50%)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setNewCatBucket('wants')}
+                                  className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
+                                    newCatBucket === 'wants' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
+                                  }`}
+                                >
+                                  ☕ Хотелки (30%)
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-3 gap-2">
+                        {activeCategories.map(c => (
+                          <div key={c.id} className="relative">
+                            <button
+                              type="button"
+                              disabled={isLockedType}
+                              onClick={() => setSelectedCategory(c.name)}
+                              className={`w-full h-10 px-2.5 rounded-xl flex items-center gap-2 text-left border transition ${
+                                selectedCategory === c.name
+                                  ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                                  : 'border-stone-200/80 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                              } ${isLockedType ? 'opacity-75 cursor-not-allowed' : ''}`}
+                            >
+                              <span className="text-sm shrink-0">{c.icon}</span>
+                              <span className="text-xs font-medium truncate">{c.name}</span>
+                            </button>
+                            {isManagingCategories && c.id.startsWith('cat_') && (
+                              <button
+                                type="button"
+                                onClick={(e) => onDeleteCustomCategory(e, c.id)}
+                                aria-label={`Удалить категорию ${c.name}`}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </>
               )}
 
@@ -4999,6 +5111,381 @@
                 )}
               </div>
             </form>
+          </div>
+        </div>
+      );
+    });
+
+    // ============================================================================
+    // MODULE: src/components/modals/OnboardingModal.jsx
+    // ============================================================================
+    const OnboardingModal = React.memo(function OnboardingModal({
+      isOpen,
+      onClose,
+      userProfiles,
+      deviceOwner,
+      safeLimitConfig,
+      onComplete,
+    }) {
+      const modalRef = useRef(null);
+      useFocusTrap(isOpen, modalRef);
+      const backdropDismiss = useBackdropDismiss(onClose);
+
+      const [step, setStep] = useState(1);
+      const [p1Name, setP1Name] = useState(userProfiles?.husband?.name || 'Партнер 1');
+      const [p1Emoji, setP1Emoji] = useState(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
+      const [p2Name, setP2Name] = useState(userProfiles?.wife?.name || 'Партнер 2');
+      const [p2Emoji, setP2Emoji] = useState(userProfiles?.wife?.emoji || '👩🏼');
+      const [owner, setOwner] = useState(deviceOwner || 'husband');
+
+      const [myStartBalance, setMyStartBalance] = useState('');
+      const [partnerStartBalance, setPartnerStartBalance] = useState('');
+      const [sharedStartBalance, setSharedStartBalance] = useState('');
+      const [startDate, setStartDate] = useState(getLocalDateString);
+      const [payday1, setPayday1] = useState(String(safeLimitConfig?.paydays?.[0] ?? 10));
+      const [payday2, setPayday2] = useState(String(safeLimitConfig?.paydays?.[1] ?? 25));
+
+      useEffect(() => {
+        if (!isOpen) return;
+        setStep(1);
+        setP1Name(userProfiles?.husband?.name && userProfiles.husband.name !== 'Партнер 1' ? userProfiles.husband.name : '');
+        setP1Emoji(userProfiles?.husband?.emoji || '🧔🏻‍♂️');
+        setP2Name(userProfiles?.wife?.name && userProfiles.wife.name !== 'Партнер 2' ? userProfiles.wife.name : '');
+        setP2Emoji(userProfiles?.wife?.emoji || '👩🏼');
+        setOwner(deviceOwner || 'husband');
+        setMyStartBalance('');
+        setPartnerStartBalance('');
+        setSharedStartBalance('');
+        setStartDate(getLocalDateString());
+        setPayday1(String(safeLimitConfig?.paydays?.[0] ?? 10));
+        setPayday2(String(safeLimitConfig?.paydays?.[1] ?? 25));
+      }, [isOpen, userProfiles, deviceOwner, safeLimitConfig]);
+
+      if (!isOpen) return null;
+
+      const cleanP1 = p1Name.trim() || 'Партнер 1';
+      const cleanP2 = p2Name.trim() || 'Партнер 2';
+      const myLabel = owner === 'wife' ? `${p2Emoji} ${cleanP2}` : `${p1Emoji} ${cleanP1}`;
+      const partnerLabel = owner === 'wife' ? `${p1Emoji} ${cleanP1}` : `${p2Emoji} ${cleanP2}`;
+
+      const handleFinish = (e) => {
+        e.preventDefault();
+        const myVal = parseFloat(myStartBalance) || 0;
+        const partnerVal = parseFloat(partnerStartBalance) || 0;
+        const sharedVal = parseFloat(sharedStartBalance) || 0;
+
+        const paydays = [];
+        const d1 = Number(payday1);
+        const d2 = Number(payday2);
+        if (d1 >= 1 && d1 <= 31) paydays.push(d1);
+        if (d2 >= 1 && d2 <= 31 && d2 !== d1) paydays.push(d2);
+        if (paydays.length === 0) paydays.push(10, 25);
+
+        onComplete({
+          userProfiles: {
+            husband: { id: 'husband', name: cleanP1, emoji: p1Emoji, color: 'blue' },
+            wife: { id: 'wife', name: cleanP2, emoji: p2Emoji, color: 'rose' },
+          },
+          deviceOwner: owner,
+          paydays: paydays.sort((a, b) => a - b),
+          startDate: startDate || getLocalDateString(),
+          balances: {
+            husband: owner === 'husband' ? myVal : partnerVal,
+            wife: owner === 'wife' ? myVal : partnerVal,
+            shared: sharedVal,
+          },
+        });
+      };
+
+      return (
+        <div
+          {...backdropDismiss}
+          className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="onboarding-modal-title"
+        >
+          <div
+            ref={modalRef}
+            className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[94vh] overflow-y-auto"
+          >
+            <div className="w-10 h-1 rounded-full bg-stone-300 mx-auto mb-3 sm:hidden shrink-0" />
+
+            <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+              <div className="flex items-center gap-2.5">
+                <span className="w-8 h-8 rounded-xl bg-stone-900 text-white flex items-center justify-center shrink-0">
+                  <Wallet className="w-4 h-4" />
+                </span>
+                <div>
+                  <span id="onboarding-modal-title" className="font-semibold text-stone-900 text-sm block">
+                    Настройка семейного бюджета
+                  </span>
+                  <span className="text-[11px] text-stone-500">
+                    Шаг {step} из 2 • {step === 1 ? 'Участники и телефон' : 'Начальные остатки и дни ЗП'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Закрыть мастер настройки"
+                className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Индикатор шага */}
+            <div className="grid grid-cols-2 gap-1.5 pt-3">
+              <div className={`h-1.5 rounded-full transition ${step >= 1 ? 'bg-stone-900' : 'bg-stone-200'}`} />
+              <div className={`h-1.5 rounded-full transition ${step >= 2 ? 'bg-stone-900' : 'bg-stone-200'}`} />
+            </div>
+
+            {step === 1 ? (
+              <div className="pt-4 space-y-4">
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-900">Партнер 1</span>
+                    <span className="text-lg">{p1Emoji}</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Имя (например: Алексей)"
+                    autoFocus
+                    value={p1Name}
+                    onChange={(e) => setP1Name(e.target.value)}
+                    className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                  />
+                  <div className="flex gap-1.5 flex-wrap">
+                    {QUICK_USER_AVATARS.slice(0, 8).map(av => (
+                      <button
+                        key={av}
+                        type="button"
+                        onClick={() => setP1Emoji(av)}
+                        className={`w-7 h-7 rounded-lg text-xs flex items-center justify-center border transition ${
+                          p1Emoji === av ? 'border-stone-900 bg-stone-200 font-bold' : 'border-stone-200 bg-white hover:bg-stone-100'
+                        }`}
+                      >
+                        {av}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-900">Партнер 2</span>
+                    <span className="text-lg">{p2Emoji}</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Имя (например: Мария)"
+                    value={p2Name}
+                    onChange={(e) => setP2Name(e.target.value)}
+                    className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
+                  />
+                  <div className="flex gap-1.5 flex-wrap">
+                    {QUICK_USER_AVATARS.slice(8).map(av => (
+                      <button
+                        key={av}
+                        type="button"
+                        onClick={() => setP2Emoji(av)}
+                        className={`w-7 h-7 rounded-lg text-xs flex items-center justify-center border transition ${
+                          p2Emoji === av ? 'border-stone-900 bg-stone-200 font-bold' : 'border-stone-200 bg-white hover:bg-stone-100'
+                        }`}
+                      >
+                        {av}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200/70 space-y-2">
+                  <span className="text-xs font-bold text-amber-950 block">Чей это телефон?</span>
+                  <p className="text-[11px] text-amber-900/80 leading-relaxed">
+                    Личный кошелек владельца этого устройства будет открываться первым на главном экране.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOwner('husband')}
+                      className={`h-9 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border ${
+                        owner === 'husband'
+                          ? 'bg-stone-900 text-white border-stone-900 shadow-sm'
+                          : 'bg-white text-stone-700 border-amber-200/80'
+                      }`}
+                    >
+                      <span>{p1Emoji}</span>
+                      <span className="truncate">{cleanP1}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOwner('wife')}
+                      className={`h-9 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border ${
+                        owner === 'wife'
+                          ? 'bg-stone-900 text-white border-stone-900 shadow-sm'
+                          : 'bg-white text-stone-700 border-amber-200/80'
+                      }`}
+                    >
+                      <span>{p2Emoji}</span>
+                      <span className="truncate">{cleanP2}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="w-full h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition flex items-center justify-center"
+                >
+                  Далее: остатки счетов и дни ЗП →
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleFinish} className="pt-4 space-y-4">
+                <div className="p-3.5 bg-sky-50/70 rounded-xl border border-sky-200/80 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-sky-700 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="text-xs font-bold text-stone-900 block">Сколько денег на картах сейчас?</span>
+                      <span className="text-[11px] text-stone-600 leading-snug block mt-0.5">
+                        Начальные остатки зададут точный баланс счетов, но не раздуют доходы месяца и графики. Оставьте пустым, если пока 0 ₽.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-700 block mb-1">
+                        Мой счет ({myLabel})
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="0"
+                          value={myStartBalance}
+                          onChange={(e) => setMyStartBalance(e.target.value)}
+                          className="w-full h-9 text-xs font-bold pl-3 pr-8 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400">₽</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-700 block mb-1">
+                        Счет партнера ({partnerLabel})
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="0"
+                          value={partnerStartBalance}
+                          onChange={(e) => setPartnerStartBalance(e.target.value)}
+                          className="w-full h-9 text-xs font-bold pl-3 pr-8 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400">₽</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-700 flex items-center gap-1 mb-1">
+                        <Users className="w-3.5 h-3.5 text-stone-500" />
+                        <span>Семейный резерв (общий котел)</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="0"
+                          value={sharedStartBalance}
+                          onChange={(e) => setSharedStartBalance(e.target.value)}
+                          className="w-full h-9 text-xs font-bold pl-3 pr-8 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900 tabular-nums"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400">₽</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-700 flex items-center gap-1 mb-1">
+                        <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Дата точки отсчета</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none text-stone-900 tabular-nums"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-2.5">
+                  <span className="text-xs font-bold text-stone-900 block">Дни зарплаты и аванса (для безопасного лимита)</span>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-medium text-stone-600 block mb-1">1-я выплата (число)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={payday1}
+                        onChange={(e) => setPayday1(e.target.value)}
+                        className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none text-stone-900 tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-stone-600 block mb-1">2-я выплата (число)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={payday2}
+                        onChange={(e) => setPayday2(e.target.value)}
+                        placeholder="Необязательно"
+                        className="w-full h-9 text-xs font-semibold px-3 bg-white border border-stone-200 rounded-lg focus:outline-none text-stone-900 tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {[
+                      { label: '10 и 25', d1: '10', d2: '25' },
+                      { label: '5 и 20', d1: '5', d2: '20' },
+                      { label: '1 и 15', d1: '1', d2: '15' },
+                      { label: 'Только 10-е', d1: '10', d2: '' },
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => { setPayday1(p.d1); setPayday2(p.d2); }}
+                        className="px-2 py-1 rounded-md text-[11px] font-medium bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 transition"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setStep(1)}
+                    className="h-11 px-4 bg-stone-100 text-stone-700 hover:bg-stone-200 rounded-xl font-semibold text-xs transition shrink-0"
+                  >
+                    ← Назад
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 h-11 bg-stone-900 text-white rounded-xl font-semibold text-sm hover:bg-stone-800 transition shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Начать учет</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       );
@@ -6365,13 +6852,26 @@
     // MODULE: src/App.jsx
     // ============================================================================
     function FamilyBudgetApp() {
+      // Флаг прохождения стартовой настройки (чистый первый запуск без подмены демо-чеками)
+      const [isOnboarded, setIsOnboarded] = useState(() => {
+        const saved = loadFromStorage('family_budget_onboarded', null);
+        if (saved !== null) return Boolean(saved);
+        return (
+          hasStoredKey('family_budget_txs') ||
+          hasStoredKey('family_budget_goals') ||
+          hasStoredKey('family_budget_debts') ||
+          hasStoredKey('family_budget_recurring')
+        );
+      });
+      const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
+
       // Профили пользователей и владелец устройства (Personal-First)
       const [userProfiles, setUserProfiles] = useState(() => {
-        const loaded = loadFromStorage('family_budget_profiles', INITIAL_USER_PROFILES);
+        const loaded = loadFromStorage('family_budget_profiles', EMPTY_USER_PROFILES);
         if (loaded && typeof loaded === 'object' && loaded.husband && loaded.wife) {
           return loaded;
         }
-        return INITIAL_USER_PROFILES;
+        return EMPTY_USER_PROFILES;
       });
       const [deviceOwner, setDeviceOwner] = useState(() => {
         const loaded = loadFromStorage('family_budget_device_owner', 'husband');
@@ -6401,24 +6901,24 @@
         if (userProfiles && typeof userProfiles === 'object' && userProfiles.husband && userProfiles.wife) {
           return userProfiles;
         }
-        return INITIAL_USER_PROFILES;
+        return EMPTY_USER_PROFILES;
       }, [userProfiles]);
 
       // Вид аналитических графиков на вкладке «Обзор»: 'burndown' | 'rule503020' | 'dynamics' | 'partners'
       const [chartView, setChartView] = useState('burndown');
 
-      // Хранилища состояния
+      // Хранилища состояния (на чистом первом запуске — пустая база, демо загружается по явному выбору)
       const [transactions, setTransactions] = useState(() =>
-        loadFromStorage('family_budget_txs', INITIAL_TRANSACTIONS)
+        loadFromStorage('family_budget_txs', [])
       );
       const [goals, setGoals] = useState(() =>
-        loadFromStorage('family_budget_goals', INITIAL_GOALS)
+        loadFromStorage('family_budget_goals', [])
       );
       const [recurringPayments, setRecurringPayments] = useState(() =>
-        loadFromStorage('family_budget_recurring', INITIAL_RECURRING)
+        loadFromStorage('family_budget_recurring', [])
       );
       const [debts, setDebts] = useState(() =>
-        loadFromStorage('family_budget_debts', INITIAL_DEBTS)
+        loadFromStorage('family_budget_debts', [])
       );
       const [customCategories, setCustomCategories] = useState(() =>
         loadFromStorage('family_budget_custom_categories', [])
@@ -6527,6 +7027,10 @@
 
       // Сохранение в LocalStorage с защитой от переполнения квоты
       useEffect(() => {
+        saveToStorage('family_budget_onboarded', isOnboarded, handleStorageQuotaError);
+      }, [isOnboarded, handleStorageQuotaError]);
+
+      useEffect(() => {
         saveToStorage('family_budget_txs', transactions, handleStorageQuotaError);
       }, [transactions, handleStorageQuotaError]);
 
@@ -6576,6 +7080,7 @@
             setIsProfileModalOpen(false);
             setIsLimitModalOpen(false);
             setIsExportModalOpen(false);
+            setIsOnboardingModalOpen(false);
           }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -6699,7 +7204,7 @@
         const historyByCatAndMonth = {};
 
         transactions.forEach(t => {
-          if (t.type !== 'expense' || isSavingsOrDebtTx(t)) return;
+          if (t.type !== 'expense' || isSavingsOrDebtTx(t) || t.isOpeningBalance) return;
           const ym = (t.date || '').slice(0, 7);
           if (!ym || ym >= targetYm) return;
 
@@ -6726,7 +7231,7 @@
 
         const currentActualByCat = {};
         periodTransactions.forEach(t => {
-          if (t.type !== 'expense' || isSavingsOrDebtTx(t)) return;
+          if (t.type !== 'expense' || isSavingsOrDebtTx(t) || t.isOpeningBalance) return;
           const acc = t.account || 'shared';
           const matchesWallet =
             (activeWalletCard === 'shared' && acc === 'shared') ||
@@ -6854,6 +7359,7 @@
         const prevCategoryTotals = {};
 
         periodTransactions.forEach(t => {
+          if (t.isOpeningBalance) return;
           const val = Number(t.amount) || 0;
           if (t.type === 'transfer') {
             const fromW = getWalletKeyFromTx(t);
@@ -6924,6 +7430,7 @@
         });
 
         previousMonthTransactions.forEach(t => {
+          if (t.isOpeningBalance) return;
           const val = Number(t.amount) || 0;
           const acc = t.account || 'shared';
           const isSavingOrDebt = isSavingsOrDebtTx(t);
@@ -6947,7 +7454,7 @@
         const today = new Date();
         const todayStr = getLocalDateString(today);
         const hasSalaryToday = transactions.some(t => {
-          if (t.date !== todayStr) return false;
+          if (t.date !== todayStr || t.isOpeningBalance) return false;
           if (t.type === 'income') {
             const wKey = getWalletKeyFromTx(t);
             return wKey === activeWalletCard || activeWalletCard === 'shared';
@@ -7145,7 +7652,7 @@
 
       // Сохранение (добавление или редактирование) транзакции
       const handleSaveTransaction = useCallback((payload) => {
-        const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, date: finalDate, stayOpen } = payload;
+        const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, isOpeningBalance, date: finalDate, stayOpen } = payload;
 
         if (id) {
           const oldTx = transactions.find(t => t.id === id);
@@ -7161,7 +7668,9 @@
                     category: locked ? t.category : selectedCategory,
                     account: selectedAccount,
                     author: txAuthor,
-                    ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : { fromWallet: undefined, transferTo: undefined }),
+                    ...(txType === 'transfer'
+                      ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared', isOpeningBalance: undefined }
+                      : { fromWallet: undefined, transferTo: undefined, isOpeningBalance: locked ? t.isOpeningBalance : (isOpeningBalance ? true : undefined) }),
                     date: finalDate,
                   }
                 : t
@@ -7247,9 +7756,11 @@
             account: selectedAccount,
             author: txAuthor,
             ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : {}),
+            ...(txType !== 'transfer' && isOpeningBalance ? { isOpeningBalance: true } : {}),
             date: finalDate,
           };
           setTransactions(prev => [newTx, ...prev]);
+          if (!isOnboarded) setIsOnboarded(true);
 
           const txMonth = finalDate.slice(0, 7);
           const isDifferentMonth = selectedMonth !== 'all' && txMonth !== selectedMonth;
@@ -7273,7 +7784,7 @@
             }
           }
         }
-      }, [transactions, selectedMonth, showToast]);
+      }, [transactions, selectedMonth, isOnboarded, showToast]);
 
       // Удаление транзакции с мягким Undo-тостом и откатом копилки / долга
       const handleDeleteTransaction = useCallback((id, e) => {
@@ -8001,6 +8512,7 @@
             if (ns.safeLimitConfig) setSafeLimitConfig(ns.safeLimitConfig);
 
             setIsExportModalOpen(false);
+            setIsOnboarded(true);
             showToast(result.message, () => {
               setTransactions(prevSnapshot.transactions);
               setGoals(prevSnapshot.goals);
@@ -8038,6 +8550,7 @@
         setCustomCategories([]);
         setPlannedCategoryLimits({});
         setIsExportModalOpen(false);
+        setIsOnboarded(true);
         showToast('Все демо-данные очищены — можно начинать с чистого листа!', () => {
           setTransactions(prevSnapshot.transactions);
           setGoals(prevSnapshot.goals);
@@ -8054,11 +8567,56 @@
         setGoals(INITIAL_GOALS);
         setRecurringPayments(INITIAL_RECURRING);
         setDebts(INITIAL_DEBTS);
+        setUserProfiles(INITIAL_USER_PROFILES);
         setCustomCategories([]);
         setPlannedCategoryLimits({});
         setIsExportModalOpen(false);
+        setIsOnboarded(true);
         showToast(`Демонстрационные данные v${APP_VERSION} восстановлены`);
       };
+
+      const handleCompleteOnboarding = useCallback(({ userProfiles: nextProfiles, deviceOwner: nextOwner, paydays, startDate, balances }) => {
+        setUserProfiles(nextProfiles);
+        setDeviceOwner(nextOwner);
+        setCurrentUser(nextOwner);
+        setActiveWalletCard(nextOwner);
+        setSafeLimitConfig(prev => ({
+          ...prev,
+          mode: 'paydays',
+          paydays,
+        }));
+
+        const ts = Date.now();
+        const openingTxs = [];
+        const entries = [
+          { key: 'husband', val: Number(balances?.husband) || 0, account: 'personal', author: 'husband' },
+          { key: 'wife', val: Number(balances?.wife) || 0, account: 'personal', author: 'wife' },
+          { key: 'shared', val: Number(balances?.shared) || 0, account: 'shared', author: nextOwner },
+        ];
+        entries.forEach((entry, idx) => {
+          if (Math.abs(entry.val) > 0) {
+            openingTxs.push({
+              id: `opening_${entry.key}_${ts}_${idx}`,
+              title: 'Начальный остаток счета',
+              amount: Math.round(Math.abs(entry.val)),
+              type: entry.val >= 0 ? 'income' : 'expense',
+              category: 'Начальный остаток',
+              account: entry.account,
+              author: entry.author,
+              isOpeningBalance: true,
+              date: startDate || getLocalDateString(),
+            });
+          }
+        });
+
+        if (openingTxs.length > 0) {
+          setTransactions(prev => [...openingTxs, ...prev]);
+        }
+
+        setIsOnboarded(true);
+        setIsOnboardingModalOpen(false);
+        showToast('Семейный бюджет настроен!');
+      }, [showToast]);
 
       // Фильтрация истории операций (поиск по названию, категории и сумме)
       const filteredTransactions = useMemo(() => {
@@ -8090,7 +8648,7 @@
           if (!(t.date || '').startsWith(targetYm)) return;
           if (!byDate[t.date]) byDate[t.date] = { count: 0, expense: 0, income: 0 };
           byDate[t.date].count += 1;
-          if (t.type === 'transfer') return;
+          if (t.type === 'transfer' || t.isOpeningBalance) return;
           if (t.type === 'income') byDate[t.date].income += Number(t.amount) || 0;
           else byDate[t.date].expense += Number(t.amount) || 0;
         });
@@ -8127,7 +8685,7 @@
           const g = map.get(d);
           g.items.push(tx);
           const val = Number(tx.amount) || 0;
-          if (tx.type !== 'transfer') {
+          if (tx.type !== 'transfer' && !tx.isOpeningBalance) {
             g.net += tx.type === 'income' ? val : -val;
           }
         });
@@ -8185,7 +8743,7 @@
 
         const dailyExpenses = new Array(days + 1).fill(0);
         periodTransactions.forEach(t => {
-          if (t.type !== 'expense' || isSavingsOrDebtTx(t)) return;
+          if (t.type !== 'expense' || isSavingsOrDebtTx(t) || t.isOpeningBalance) return;
           const acc = t.account || 'shared';
           const matches =
             (activeWalletCard === 'shared' && acc === 'shared') ||
@@ -8247,7 +8805,7 @@
         let future = 0;
 
         periodTransactions.forEach(t => {
-          if (t.type !== 'expense') return;
+          if (t.type !== 'expense' || t.isOpeningBalance) return;
           const acc = t.account || 'shared';
           const matches =
             (activeWalletCard === 'shared' && acc === 'shared') ||
@@ -8312,7 +8870,7 @@
             (activeWalletCard === 'wife' && acc === 'personal' && t.author === 'wife');
           if (!matches) return;
 
-          if (t.type === 'transfer') return;
+          if (t.type === 'transfer' || t.isOpeningBalance) return;
           const val = Number(t.amount) || 0;
           if (t.type === 'income') {
             bucket.inc += val;
@@ -8515,6 +9073,10 @@
           <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
             {activeTab === 'dashboard' && (
               <DashboardTab
+                isOnboarded={isOnboarded}
+                onOpenOnboarding={() => setIsOnboardingModalOpen(true)}
+                onLoadDemoData={handleRestoreDemoData}
+                onDismissOnboarding={() => setIsOnboarded(true)}
                 reminderSummary={reminderSummary}
                 openPayRecurringModal={openPayRecurringModal}
                 setActiveTab={setActiveTab}
@@ -8900,6 +9462,15 @@
             onImportFile={handleImportFile}
             onClearAllData={handleClearAllData}
             onRestoreDemoData={handleRestoreDemoData}
+          />
+
+          <OnboardingModal
+            isOpen={isOnboardingModalOpen}
+            onClose={() => setIsOnboardingModalOpen(false)}
+            userProfiles={safeProfiles}
+            deviceOwner={deviceOwner}
+            safeLimitConfig={safeLimitConfig}
+            onComplete={handleCompleteOnboarding}
           />
         </div>
       );

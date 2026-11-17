@@ -16,6 +16,7 @@ import {
 
 import {
   APP_VERSION,
+  hasStoredKey,
   loadFromStorage,
   saveToStorage,
   INITIAL_TRANSACTIONS,
@@ -23,6 +24,7 @@ import {
   INITIAL_RECURRING,
   INITIAL_DEBTS,
   INITIAL_USER_PROFILES,
+  EMPTY_USER_PROFILES,
   DEFAULT_EXPENSE_CATEGORIES,
   GOAL_COLOR_PRESETS,
   DEFAULT_SAFE_LIMIT_CONFIG,
@@ -53,6 +55,7 @@ import { HistoryTab } from './components/tabs/HistoryTab.jsx';
 import { GoalsTab } from './components/tabs/GoalsTab.jsx';
 import { DebtsPlanTab } from './components/tabs/DebtsPlanTab.jsx';
 import { TransactionModal } from './components/modals/TransactionModal.jsx';
+import { OnboardingModal } from './components/modals/OnboardingModal.jsx';
 import { ExportBackupModal } from './components/modals/ExportBackupModal.jsx';
 import {
   GoalActionModal,
@@ -66,13 +69,26 @@ import {
 } from './components/modals/EntityModals.jsx';
 
 export default function FamilyBudgetApp() {
+  // Флаг прохождения стартовой настройки (чистый первый запуск без подмены демо-чеками)
+  const [isOnboarded, setIsOnboarded] = useState(() => {
+    const saved = loadFromStorage('family_budget_onboarded', null);
+    if (saved !== null) return Boolean(saved);
+    return (
+      hasStoredKey('family_budget_txs') ||
+      hasStoredKey('family_budget_goals') ||
+      hasStoredKey('family_budget_debts') ||
+      hasStoredKey('family_budget_recurring')
+    );
+  });
+  const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
+
   // Профили пользователей и владелец устройства (Personal-First)
   const [userProfiles, setUserProfiles] = useState(() => {
-    const loaded = loadFromStorage('family_budget_profiles', INITIAL_USER_PROFILES);
+    const loaded = loadFromStorage('family_budget_profiles', EMPTY_USER_PROFILES);
     if (loaded && typeof loaded === 'object' && loaded.husband && loaded.wife) {
       return loaded;
     }
-    return INITIAL_USER_PROFILES;
+    return EMPTY_USER_PROFILES;
   });
   const [deviceOwner, setDeviceOwner] = useState(() => {
     const loaded = loadFromStorage('family_budget_device_owner', 'husband');
@@ -102,24 +118,24 @@ export default function FamilyBudgetApp() {
     if (userProfiles && typeof userProfiles === 'object' && userProfiles.husband && userProfiles.wife) {
       return userProfiles;
     }
-    return INITIAL_USER_PROFILES;
+    return EMPTY_USER_PROFILES;
   }, [userProfiles]);
 
   // Вид аналитических графиков на вкладке «Обзор»: 'burndown' | 'rule503020' | 'dynamics' | 'partners'
   const [chartView, setChartView] = useState('burndown');
 
-  // Хранилища состояния
+  // Хранилища состояния (на чистом первом запуске — пустая база, демо загружается по явному выбору)
   const [transactions, setTransactions] = useState(() =>
-    loadFromStorage('family_budget_txs', INITIAL_TRANSACTIONS)
+    loadFromStorage('family_budget_txs', [])
   );
   const [goals, setGoals] = useState(() =>
-    loadFromStorage('family_budget_goals', INITIAL_GOALS)
+    loadFromStorage('family_budget_goals', [])
   );
   const [recurringPayments, setRecurringPayments] = useState(() =>
-    loadFromStorage('family_budget_recurring', INITIAL_RECURRING)
+    loadFromStorage('family_budget_recurring', [])
   );
   const [debts, setDebts] = useState(() =>
-    loadFromStorage('family_budget_debts', INITIAL_DEBTS)
+    loadFromStorage('family_budget_debts', [])
   );
   const [customCategories, setCustomCategories] = useState(() =>
     loadFromStorage('family_budget_custom_categories', [])
@@ -228,6 +244,10 @@ export default function FamilyBudgetApp() {
 
   // Сохранение в LocalStorage с защитой от переполнения квоты
   useEffect(() => {
+    saveToStorage('family_budget_onboarded', isOnboarded, handleStorageQuotaError);
+  }, [isOnboarded, handleStorageQuotaError]);
+
+  useEffect(() => {
     saveToStorage('family_budget_txs', transactions, handleStorageQuotaError);
   }, [transactions, handleStorageQuotaError]);
 
@@ -277,6 +297,7 @@ export default function FamilyBudgetApp() {
         setIsProfileModalOpen(false);
         setIsLimitModalOpen(false);
         setIsExportModalOpen(false);
+        setIsOnboardingModalOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -400,7 +421,7 @@ export default function FamilyBudgetApp() {
     const historyByCatAndMonth = {};
 
     transactions.forEach(t => {
-      if (t.type !== 'expense' || isSavingsOrDebtTx(t)) return;
+      if (t.type !== 'expense' || isSavingsOrDebtTx(t) || t.isOpeningBalance) return;
       const ym = (t.date || '').slice(0, 7);
       if (!ym || ym >= targetYm) return;
 
@@ -427,7 +448,7 @@ export default function FamilyBudgetApp() {
 
     const currentActualByCat = {};
     periodTransactions.forEach(t => {
-      if (t.type !== 'expense' || isSavingsOrDebtTx(t)) return;
+      if (t.type !== 'expense' || isSavingsOrDebtTx(t) || t.isOpeningBalance) return;
       const acc = t.account || 'shared';
       const matchesWallet =
         (activeWalletCard === 'shared' && acc === 'shared') ||
@@ -555,6 +576,7 @@ export default function FamilyBudgetApp() {
     const prevCategoryTotals = {};
 
     periodTransactions.forEach(t => {
+      if (t.isOpeningBalance) return;
       const val = Number(t.amount) || 0;
       if (t.type === 'transfer') {
         const fromW = getWalletKeyFromTx(t);
@@ -625,6 +647,7 @@ export default function FamilyBudgetApp() {
     });
 
     previousMonthTransactions.forEach(t => {
+      if (t.isOpeningBalance) return;
       const val = Number(t.amount) || 0;
       const acc = t.account || 'shared';
       const isSavingOrDebt = isSavingsOrDebtTx(t);
@@ -648,7 +671,7 @@ export default function FamilyBudgetApp() {
     const today = new Date();
     const todayStr = getLocalDateString(today);
     const hasSalaryToday = transactions.some(t => {
-      if (t.date !== todayStr) return false;
+      if (t.date !== todayStr || t.isOpeningBalance) return false;
       if (t.type === 'income') {
         const wKey = getWalletKeyFromTx(t);
         return wKey === activeWalletCard || activeWalletCard === 'shared';
@@ -846,7 +869,7 @@ export default function FamilyBudgetApp() {
 
   // Сохранение (добавление или редактирование) транзакции
   const handleSaveTransaction = useCallback((payload) => {
-    const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, date: finalDate, stayOpen } = payload;
+    const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, isOpeningBalance, date: finalDate, stayOpen } = payload;
 
     if (id) {
       const oldTx = transactions.find(t => t.id === id);
@@ -862,7 +885,9 @@ export default function FamilyBudgetApp() {
                 category: locked ? t.category : selectedCategory,
                 account: selectedAccount,
                 author: txAuthor,
-                ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : { fromWallet: undefined, transferTo: undefined }),
+                ...(txType === 'transfer'
+                  ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared', isOpeningBalance: undefined }
+                  : { fromWallet: undefined, transferTo: undefined, isOpeningBalance: locked ? t.isOpeningBalance : (isOpeningBalance ? true : undefined) }),
                 date: finalDate,
               }
             : t
@@ -948,9 +973,11 @@ export default function FamilyBudgetApp() {
         account: selectedAccount,
         author: txAuthor,
         ...(txType === 'transfer' ? { fromWallet: fromWallet || (selectedAccount === 'shared' ? 'shared' : txAuthor), transferTo: transferTo || 'shared' } : {}),
+        ...(txType !== 'transfer' && isOpeningBalance ? { isOpeningBalance: true } : {}),
         date: finalDate,
       };
       setTransactions(prev => [newTx, ...prev]);
+      if (!isOnboarded) setIsOnboarded(true);
 
       const txMonth = finalDate.slice(0, 7);
       const isDifferentMonth = selectedMonth !== 'all' && txMonth !== selectedMonth;
@@ -974,7 +1001,7 @@ export default function FamilyBudgetApp() {
         }
       }
     }
-  }, [transactions, selectedMonth, showToast]);
+  }, [transactions, selectedMonth, isOnboarded, showToast]);
 
   // Удаление транзакции с мягким Undo-тостом и откатом копилки / долга
   const handleDeleteTransaction = useCallback((id, e) => {
@@ -1702,6 +1729,7 @@ export default function FamilyBudgetApp() {
         if (ns.safeLimitConfig) setSafeLimitConfig(ns.safeLimitConfig);
 
         setIsExportModalOpen(false);
+        setIsOnboarded(true);
         showToast(result.message, () => {
           setTransactions(prevSnapshot.transactions);
           setGoals(prevSnapshot.goals);
@@ -1739,6 +1767,7 @@ export default function FamilyBudgetApp() {
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
+    setIsOnboarded(true);
     showToast('Все демо-данные очищены — можно начинать с чистого листа!', () => {
       setTransactions(prevSnapshot.transactions);
       setGoals(prevSnapshot.goals);
@@ -1755,11 +1784,56 @@ export default function FamilyBudgetApp() {
     setGoals(INITIAL_GOALS);
     setRecurringPayments(INITIAL_RECURRING);
     setDebts(INITIAL_DEBTS);
+    setUserProfiles(INITIAL_USER_PROFILES);
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
+    setIsOnboarded(true);
     showToast(`Демонстрационные данные v${APP_VERSION} восстановлены`);
   };
+
+  const handleCompleteOnboarding = useCallback(({ userProfiles: nextProfiles, deviceOwner: nextOwner, paydays, startDate, balances }) => {
+    setUserProfiles(nextProfiles);
+    setDeviceOwner(nextOwner);
+    setCurrentUser(nextOwner);
+    setActiveWalletCard(nextOwner);
+    setSafeLimitConfig(prev => ({
+      ...prev,
+      mode: 'paydays',
+      paydays,
+    }));
+
+    const ts = Date.now();
+    const openingTxs = [];
+    const entries = [
+      { key: 'husband', val: Number(balances?.husband) || 0, account: 'personal', author: 'husband' },
+      { key: 'wife', val: Number(balances?.wife) || 0, account: 'personal', author: 'wife' },
+      { key: 'shared', val: Number(balances?.shared) || 0, account: 'shared', author: nextOwner },
+    ];
+    entries.forEach((entry, idx) => {
+      if (Math.abs(entry.val) > 0) {
+        openingTxs.push({
+          id: `opening_${entry.key}_${ts}_${idx}`,
+          title: 'Начальный остаток счета',
+          amount: Math.round(Math.abs(entry.val)),
+          type: entry.val >= 0 ? 'income' : 'expense',
+          category: 'Начальный остаток',
+          account: entry.account,
+          author: entry.author,
+          isOpeningBalance: true,
+          date: startDate || getLocalDateString(),
+        });
+      }
+    });
+
+    if (openingTxs.length > 0) {
+      setTransactions(prev => [...openingTxs, ...prev]);
+    }
+
+    setIsOnboarded(true);
+    setIsOnboardingModalOpen(false);
+    showToast('Семейный бюджет настроен!');
+  }, [showToast]);
 
   // Фильтрация истории операций (поиск по названию, категории и сумме)
   const filteredTransactions = useMemo(() => {
@@ -1791,7 +1865,7 @@ export default function FamilyBudgetApp() {
       if (!(t.date || '').startsWith(targetYm)) return;
       if (!byDate[t.date]) byDate[t.date] = { count: 0, expense: 0, income: 0 };
       byDate[t.date].count += 1;
-      if (t.type === 'transfer') return;
+      if (t.type === 'transfer' || t.isOpeningBalance) return;
       if (t.type === 'income') byDate[t.date].income += Number(t.amount) || 0;
       else byDate[t.date].expense += Number(t.amount) || 0;
     });
@@ -1828,7 +1902,7 @@ export default function FamilyBudgetApp() {
       const g = map.get(d);
       g.items.push(tx);
       const val = Number(tx.amount) || 0;
-      if (tx.type !== 'transfer') {
+      if (tx.type !== 'transfer' && !tx.isOpeningBalance) {
         g.net += tx.type === 'income' ? val : -val;
       }
     });
@@ -1886,7 +1960,7 @@ export default function FamilyBudgetApp() {
 
     const dailyExpenses = new Array(days + 1).fill(0);
     periodTransactions.forEach(t => {
-      if (t.type !== 'expense' || isSavingsOrDebtTx(t)) return;
+      if (t.type !== 'expense' || isSavingsOrDebtTx(t) || t.isOpeningBalance) return;
       const acc = t.account || 'shared';
       const matches =
         (activeWalletCard === 'shared' && acc === 'shared') ||
@@ -1948,7 +2022,7 @@ export default function FamilyBudgetApp() {
     let future = 0;
 
     periodTransactions.forEach(t => {
-      if (t.type !== 'expense') return;
+      if (t.type !== 'expense' || t.isOpeningBalance) return;
       const acc = t.account || 'shared';
       const matches =
         (activeWalletCard === 'shared' && acc === 'shared') ||
@@ -2013,7 +2087,7 @@ export default function FamilyBudgetApp() {
         (activeWalletCard === 'wife' && acc === 'personal' && t.author === 'wife');
       if (!matches) return;
 
-      if (t.type === 'transfer') return;
+      if (t.type === 'transfer' || t.isOpeningBalance) return;
       const val = Number(t.amount) || 0;
       if (t.type === 'income') {
         bucket.inc += val;
@@ -2216,6 +2290,10 @@ export default function FamilyBudgetApp() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
         {activeTab === 'dashboard' && (
           <DashboardTab
+            isOnboarded={isOnboarded}
+            onOpenOnboarding={() => setIsOnboardingModalOpen(true)}
+            onLoadDemoData={handleRestoreDemoData}
+            onDismissOnboarding={() => setIsOnboarded(true)}
             reminderSummary={reminderSummary}
             openPayRecurringModal={openPayRecurringModal}
             setActiveTab={setActiveTab}
@@ -2601,6 +2679,15 @@ export default function FamilyBudgetApp() {
         onImportFile={handleImportFile}
         onClearAllData={handleClearAllData}
         onRestoreDemoData={handleRestoreDemoData}
+      />
+
+      <OnboardingModal
+        isOpen={isOnboardingModalOpen}
+        onClose={() => setIsOnboardingModalOpen(false)}
+        userProfiles={safeProfiles}
+        deviceOwner={deviceOwner}
+        safeLimitConfig={safeLimitConfig}
+        onComplete={handleCompleteOnboarding}
       />
     </div>
   );

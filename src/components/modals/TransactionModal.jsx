@@ -32,6 +32,7 @@ export const TransactionModal = React.memo(function TransactionModal({
   const [transferTo, setTransferTo] = useState('shared');
   const [txDate, setTxDate] = useState(getLocalDateString);
   const [isBatchReceiptMode, setIsBatchReceiptMode] = useState(false);
+  const [isOpeningBalance, setIsOpeningBalance] = useState(false);
 
   const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
   const [isManagingCategories, setIsManagingCategories] = useState(false);
@@ -87,6 +88,7 @@ export const TransactionModal = React.memo(function TransactionModal({
       setTxAuthor(initialTx.author || currentUser);
       setTransferTo(initialTx.transferTo || 'shared');
       setTxDate(initialTx.date || getLocalDateString());
+      setIsOpeningBalance(Boolean(initialTx.isOpeningBalance));
     } else {
       setAmount('');
       setTxTitle('');
@@ -101,6 +103,7 @@ export const TransactionModal = React.memo(function TransactionModal({
       setTransferTo(presetConfig?.transferTo || (fromW === 'shared' ? (currentUser === 'wife' ? 'wife' : 'husband') : 'shared'));
       setTxDate(presetConfig?.date || getLocalDateString());
       setIsBatchReceiptMode(Boolean(presetConfig?.batchMode));
+      setIsOpeningBalance(Boolean(presetConfig?.isOpeningBalance));
     }
     setIsAddingCustomCategory(false);
     setIsManagingCategories(false);
@@ -120,6 +123,7 @@ export const TransactionModal = React.memo(function TransactionModal({
     setTxType(newType);
     setIsAddingCustomCategory(false);
     if (newType === 'transfer') {
+      setIsOpeningBalance(false);
       const fromW = selectedAccount === 'shared' ? 'shared' : (txAuthor === 'wife' ? 'wife' : 'husband');
       if (fromW === 'shared' && transferTo === 'shared') {
         setSelectedAccount('personal');
@@ -179,14 +183,17 @@ export const TransactionModal = React.memo(function TransactionModal({
         stayOpen,
       });
     } else {
+      const finalCategory = isOpeningBalance ? 'Начальный остаток' : selectedCategory;
+      const defaultTitle = isOpeningBalance ? 'Начальный остаток счета' : selectedCategory;
       onSaveTransaction({
         id: initialTx?.id || null,
         amount: num,
-        title: txTitle.trim() || selectedCategory,
+        title: txTitle.trim() || defaultTitle,
         type: txType,
-        category: selectedCategory,
+        category: finalCategory,
         account: selectedAccount,
         author: txAuthor,
+        isOpeningBalance: Boolean(isOpeningBalance),
         date: txDate || getLocalDateString(),
         stayOpen,
       });
@@ -542,118 +549,138 @@ export const TransactionModal = React.memo(function TransactionModal({
                 </div>
               </div>
 
-              {/* Категории — все кнопки фиксированной высоты h-10 */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-stone-600">
-                    Категория
-                  </label>
-                  <div className="flex items-center gap-2">
-                    {customCategories.some(c => (txType === 'income' ? c.type === 'income' : c.type !== 'income')) && (
-                      <button
-                        type="button"
-                        onClick={() => setIsManagingCategories(!isManagingCategories)}
-                        className="text-xs font-medium text-stone-600 hover:text-stone-900"
-                      >
-                        {isManagingCategories ? 'Готово' : 'Изм.'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingCustomCategory(!isAddingCustomCategory)}
-                      className="text-xs font-semibold text-stone-700 hover:text-stone-900"
-                    >
-                      {isAddingCustomCategory ? 'Отмена' : '+ Своя'}
-                    </button>
-                  </div>
+              {!isLockedType && (
+                <label className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-sky-50/70 border border-sky-200/70 text-xs text-stone-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isOpeningBalance}
+                    onChange={(e) => setIsOpeningBalance(e.target.checked)}
+                    className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900 shrink-0"
+                  />
+                  <span className="leading-snug">
+                    <strong className="text-stone-900">Начальный остаток счета</strong> (меняет баланс кошелька без учета в доходах и тратах месяца)
+                  </span>
+                </label>
+              )}
+
+              {isOpeningBalance ? (
+                <div className="p-3 bg-sky-50 rounded-xl border border-sky-200 text-xs text-sky-900 leading-relaxed">
+                  🏦 Запись задаст стартовый остаток для выбранного кошелька на дату <b>{txDate}</b> и не повлияет на графики 50/30/20 и доходы месяца.
                 </div>
-
-                {isAddingCustomCategory && (
-                  <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl mb-3 space-y-2 animate-fade-in">
+              ) : (
+                /* Категории — все кнопки фиксированной высоты h-10 */
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-stone-600">
+                      Категория
+                    </label>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="🏷️"
-                        value={newCatIcon}
-                        onChange={(e) => setNewCatIcon(e.target.value)}
-                        aria-label="Эмодзи категории"
-                        className="w-10 h-9 text-center text-base bg-white border border-stone-200 rounded-lg focus:outline-none shrink-0"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Название категории..."
-                        value={newCatName}
-                        onChange={(e) => setNewCatName(e.target.value)}
-                        aria-label="Название новой категории"
-                        className="flex-1 h-9 text-xs px-3 bg-white border border-stone-200 rounded-lg focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddCategory}
-                        aria-label="Сохранить категорию"
-                        className="w-9 h-9 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-stone-800 transition flex items-center justify-center shrink-0"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                    </div>
-                    {txType === 'expense' && (
-                      <div className="flex items-center justify-between text-xs pt-1">
-                        <span className="text-stone-600">Корзина 50/30/20:</span>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setNewCatBucket('base')}
-                            className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
-                              newCatBucket === 'base' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
-                            }`}
-                          >
-                            🏠 База (50%)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setNewCatBucket('wants')}
-                            className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
-                              newCatBucket === 'wants' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
-                            }`}
-                          >
-                            ☕ Хотелки (30%)
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-3 gap-2">
-                  {activeCategories.map(c => (
-                    <div key={c.id} className="relative">
-                      <button
-                        type="button"
-                        disabled={isLockedType}
-                        onClick={() => setSelectedCategory(c.name)}
-                        className={`w-full h-10 px-2.5 rounded-xl flex items-center gap-2 text-left border transition ${
-                          selectedCategory === c.name
-                            ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
-                            : 'border-stone-200/80 bg-stone-50 text-stone-700 hover:bg-stone-100'
-                        } ${isLockedType ? 'opacity-75 cursor-not-allowed' : ''}`}
-                      >
-                        <span className="text-sm shrink-0">{c.icon}</span>
-                        <span className="text-xs font-medium truncate">{c.name}</span>
-                      </button>
-                      {isManagingCategories && c.id.startsWith('cat_') && (
+                      {customCategories.some(c => (txType === 'income' ? c.type === 'income' : c.type !== 'income')) && (
                         <button
                           type="button"
-                          onClick={(e) => onDeleteCustomCategory(e, c.id)}
-                          aria-label={`Удалить категорию ${c.name}`}
-                          className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow"
+                          onClick={() => setIsManagingCategories(!isManagingCategories)}
+                          className="text-xs font-medium text-stone-600 hover:text-stone-900"
                         >
-                          ×
+                          {isManagingCategories ? 'Готово' : 'Изм.'}
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingCustomCategory(!isAddingCustomCategory)}
+                        className="text-xs font-semibold text-stone-700 hover:text-stone-900"
+                      >
+                        {isAddingCustomCategory ? 'Отмена' : '+ Своя'}
+                      </button>
                     </div>
-                  ))}
+                  </div>
+
+                  {isAddingCustomCategory && (
+                    <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl mb-3 space-y-2 animate-fade-in">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="🏷️"
+                          value={newCatIcon}
+                          onChange={(e) => setNewCatIcon(e.target.value)}
+                          aria-label="Эмодзи категории"
+                          className="w-10 h-9 text-center text-base bg-white border border-stone-200 rounded-lg focus:outline-none shrink-0"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Название категории..."
+                          value={newCatName}
+                          onChange={(e) => setNewCatName(e.target.value)}
+                          aria-label="Название новой категории"
+                          className="flex-1 h-9 text-xs px-3 bg-white border border-stone-200 rounded-lg focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCategory}
+                          aria-label="Сохранить категорию"
+                          className="w-9 h-9 bg-stone-900 text-white rounded-lg text-xs font-semibold hover:bg-stone-800 transition flex items-center justify-center shrink-0"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {txType === 'expense' && (
+                        <div className="flex items-center justify-between text-xs pt-1">
+                          <span className="text-stone-600">Корзина 50/30/20:</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setNewCatBucket('base')}
+                              className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
+                                newCatBucket === 'base' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
+                              }`}
+                            >
+                              🏠 База (50%)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewCatBucket('wants')}
+                              className={`h-7 px-2.5 rounded-lg text-xs font-medium ${
+                                newCatBucket === 'wants' ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 border border-stone-200'
+                              }`}
+                            >
+                              ☕ Хотелки (30%)
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {activeCategories.map(c => (
+                      <div key={c.id} className="relative">
+                        <button
+                          type="button"
+                          disabled={isLockedType}
+                          onClick={() => setSelectedCategory(c.name)}
+                          className={`w-full h-10 px-2.5 rounded-xl flex items-center gap-2 text-left border transition ${
+                            selectedCategory === c.name
+                              ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                              : 'border-stone-200/80 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                          } ${isLockedType ? 'opacity-75 cursor-not-allowed' : ''}`}
+                        >
+                          <span className="text-sm shrink-0">{c.icon}</span>
+                          <span className="text-xs font-medium truncate">{c.name}</span>
+                        </button>
+                        {isManagingCategories && c.id.startsWith('cat_') && (
+                          <button
+                            type="button"
+                            onClick={(e) => onDeleteCustomCategory(e, c.id)}
+                            aria-label={`Удалить категорию ${c.name}`}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           )}
 

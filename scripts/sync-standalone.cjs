@@ -25,6 +25,7 @@ const moduleFiles = [
   'components/tabs/DebtsPlanTab.jsx',
   'components/modals/ExportBackupModal.jsx',
   'components/modals/TransactionModal.jsx',
+  'components/modals/OnboardingModal.jsx',
   'components/modals/EntityModals.jsx',
   'App.jsx',
 ];

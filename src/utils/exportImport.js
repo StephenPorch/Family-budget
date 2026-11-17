@@ -78,6 +78,7 @@ export const buildBudgetXlsxSheets = ({
     ...[...transactions]
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
       .map(t => {
+        const isOpening = Boolean(t.isOpeningBalance);
         const isTransfer = t.type === 'transfer';
         const fromW = isTransfer ? getWalletKeyFromTx(t) : null;
         const toW = isTransfer
@@ -88,7 +89,11 @@ export const buildBudgetXlsxSheets = ({
         const routeLabel = isTransfer
           ? `${getWalletDisplayLabel(safeProfiles, fromW)} → ${getWalletDisplayLabel(safeProfiles, toW)}`
           : '';
-        const typeLabel = isTransfer ? 'Перевод' : (t.type === 'income' ? 'Доход' : 'Расход');
+        const typeLabel = isOpening
+          ? 'Начальный остаток'
+          : isTransfer
+          ? 'Перевод'
+          : (t.type === 'income' ? 'Доход' : 'Расход');
         const accountLabel = isTransfer
           ? 'Между счетами'
           : ((t.account || 'shared') === 'shared' ? 'Общий котел' : 'Личный');
@@ -100,7 +105,7 @@ export const buildBudgetXlsxSheets = ({
           typeLabel,
           t.category || '',
           t.title || '',
-          Number(t.amount) || 0,
+          isOpening && t.type === 'expense' ? -(Number(t.amount) || 0) : (Number(t.amount) || 0),
           accountLabel,
           t.author === 'wife' ? p2Name : p1Name,
           routeLabel,
@@ -314,6 +319,7 @@ export const buildStructuredCsvString = ({
         t.recurringId ? `rec:${t.recurringId}` : '',
         t.transferTo ? `to:${t.transferTo}` : '',
         t.fromWallet ? `from:${t.fromWallet}` : '',
+        t.isOpeningBalance ? 'opening:1' : '',
       ].filter(Boolean).join('|');
 
       lines.push(toCsvLine([
@@ -406,7 +412,8 @@ export const buildAiPromptReport = ({
         ? `${t.fromWallet || getWalletKeyFromTx(t)}->${t.transferTo || 'shared'}`
         : (t.account || 'shared');
       const authStr = t.author === 'wife' ? p2Name : p1Name;
-      return `${t.date};${t.type};${t.category};${t.title};${t.amount};${accStr};${authStr}`;
+      const typeStr = t.isOpeningBalance ? `opening(${t.type})` : t.type;
+      return `${t.date};${typeStr};${t.category};${t.title};${t.amount};${accStr};${authStr}`;
     }),
   ];
   return lines.join('\n');
@@ -497,6 +504,7 @@ export const parseImportedBackupContent = ({
         const recLink = extraParts.find(x => x.startsWith('rec:'))?.slice(4);
         const toLink = extraParts.find(x => x.startsWith('to:'))?.slice(3);
         const fromLink = extraParts.find(x => x.startsWith('from:'))?.slice(5);
+        const isOpening = extraParts.includes('opening:1');
         const parsedType = (dirOrStatus === 'transfer' || dirOrStatus === 'Перевод')
           ? 'transfer'
           : (dirOrStatus === 'income' || dirOrStatus === 'Доход' ? 'income' : 'expense');
@@ -514,6 +522,7 @@ export const parseImportedBackupContent = ({
           ...(recLink ? { recurringId: recLink } : {}),
           ...(toLink ? { transferTo: toLink } : {}),
           ...(fromLink ? { fromWallet: fromLink } : {}),
+          ...(isOpening ? { isOpeningBalance: true } : {}),
         });
       } else if (recType === 'RECURRING') {
         nextRecs.push({

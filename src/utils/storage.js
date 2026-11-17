@@ -1,5 +1,13 @@
 export const APP_VERSION = '0.8.2';
 
+export const hasStoredKey = (key) => {
+  try {
+    return localStorage.getItem(key) !== null;
+  } catch {
+    return false;
+  }
+};
+
 // Безопасная загрузка и сохранение в LocalStorage
 export const loadFromStorage = (key, fallback) => {
   try {
@@ -71,6 +79,11 @@ export const INITIAL_RECURRING = [
   { id: 'rec_5', title: 'Мобильная связь (2 номера)', amount: 1400, category: 'Связь и интернет', account: 'shared', author: 'wife', dueDate: 27, isMandatory: true, paidMonths: [] },
   { id: 'rec_4', title: 'Детский сад / Секции', amount: 12000, category: 'Дети и секции', account: 'shared', author: 'wife', dueDate: 28, isMandatory: true, paidMonths: [] },
 ];
+
+export const EMPTY_USER_PROFILES = {
+  husband: { id: 'husband', name: 'Партнер 1', emoji: '🧔🏻‍♂️', color: 'blue' },
+  wife: { id: 'wife', name: 'Партнер 2', emoji: '👩🏼', color: 'rose' },
+};
 
 export const INITIAL_USER_PROFILES = {
   husband: { id: 'husband', name: 'Женя', emoji: '🧔🏻‍♂️', color: 'blue' },

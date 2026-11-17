@@ -1,13 +1,17 @@
 import React from 'react';
 import {
   Bell, Users, SlidersHorizontal, AlertCircle, TrendingUp,
-  ShieldCheck, CheckCircle2, Target, ArrowUpRight, User, Calendar
+  ShieldCheck, CheckCircle2, Target, ArrowUpRight, User, Calendar, Sparkles
 } from 'lucide-react';
 import { getCurrentMonthPrefix } from '../../utils/dateUtils.js';
 import { ChartsSection } from '../analytics/ChartsSection.jsx';
 import { TransactionRow } from '../TransactionRow.jsx';
 
 export const DashboardTab = React.memo(function DashboardTab({
+  isOnboarded,
+  onOpenOnboarding,
+  onLoadDemoData,
+  onDismissOnboarding,
   reminderSummary,
   openPayRecurringModal,
   setActiveTab,
@@ -46,6 +50,48 @@ export const DashboardTab = React.memo(function DashboardTab({
 
   return (
     <div className="space-y-5 animate-fade-in">
+      {/* ПАНЕЛЬ БЫСТРОГО СТАРТА ПРИ ЧИСТОМ ПЕРВОМ ЗАПУСКЕ */}
+      {!isOnboarded && (
+        <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-stone-900 text-amber-300 flex items-center justify-center shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-stone-900">
+                Чистый старт: настройте бюджет за 30 секунд
+              </div>
+              <p className="text-xs text-stone-600 mt-0.5 leading-relaxed">
+                Укажите имена партнеров, чей это телефон и текущие остатки на счетах — они зададут верный баланс без искажения доходов месяца.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onOpenOnboarding}
+              className="h-9 px-3.5 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center"
+            >
+              Настроить счета и остатки
+            </button>
+            <button
+              type="button"
+              onClick={onLoadDemoData}
+              className="h-9 px-3.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition inline-flex items-center"
+            >
+              Загрузить демо-пример
+            </button>
+            <button
+              type="button"
+              onClick={onDismissOnboarding}
+              className="h-9 px-3 rounded-xl text-stone-500 hover:text-stone-900 hover:bg-stone-100 text-xs font-medium transition inline-flex items-center"
+            >
+              Скрыть
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* УМНАЯ НАПОМИНАЛКА О ГОРЯЩИХ И ПРОСРОЧЕННЫХ ОБЯЗАТЕЛЬНЫХ ПЛАТЕЖАХ */}
       {reminderSummary.urgentRecs.length > 0 && (
         <div className="bg-amber-50/95 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">

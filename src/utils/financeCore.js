@@ -1,8 +1,17 @@
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, CATEGORY_ALIASES, DEFAULT_SAFE_LIMIT_CONFIG } from './storage.js';
 import { getCurrentMonthPrefix } from './dateUtils.js';
 
-export const getCategoryMeta = (categoryName, type, customCategories = []) => {
+export const getCategoryMeta = (categoryName, type, customCategories = [], isOpeningBalance = false) => {
   const normName = (categoryName || '').trim().toLowerCase();
+  if (isOpeningBalance || normName === 'начальный остаток') {
+    return {
+      id: 'opening_balance',
+      name: categoryName || 'Начальный остаток',
+      icon: '🏦',
+      color: 'bg-sky-50 text-sky-700',
+      bucket: 'opening',
+    };
+  }
   if (type === 'transfer' || normName === 'перевод между счетами' || normName === 'перевод') {
     return {
       id: 'transfer',
@@ -238,7 +247,8 @@ const normAccountForSig = (acc) => (!acc || acc === 'family') ? 'shared' : acc;
 const getTxSignature = (tx) => {
   const fromW = tx.fromWallet || '';
   const toW = tx.transferTo || '';
-  return `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${normAccountForSig(tx.account)}|${fromW}|${toW}`;
+  const openingFlag = tx.isOpeningBalance ? 'opening' : '';
+  return `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${normAccountForSig(tx.account)}|${fromW}|${toW}|${openingFlag}`;
 };
 
 // Безопасное слияние (Merge) транзакций с фильтрацией дубликатов по ID и сигнатуре
@@ -305,6 +315,7 @@ export const calculatePartnerComparison = (transactions = [], userProfiles = {},
   let sharedPoolTransferOut = 0;
 
   for (const tx of transactions) {
+    if (tx.isOpeningBalance) continue;
     const ym = (tx.date || '').slice(0, 7);
     if (targetYm && targetYm !== 'all' && ym !== targetYm) continue;
 
@@ -416,7 +427,7 @@ export const calculateHistoricalForecast = (transactions = [], recurringPayments
 
   const pastMonthsSet = new Set();
   for (const tx of transactions) {
-    if (tx.type !== 'expense') continue;
+    if (tx.type !== 'expense' || tx.isOpeningBalance) continue;
     const ym = (tx.date || '').slice(0, 7);
     if (ym && ym < targetYm) pastMonthsSet.add(ym);
   }
@@ -424,7 +435,7 @@ export const calculateHistoricalForecast = (transactions = [], recurringPayments
 
   const byCat = {};
   for (const tx of transactions) {
-    if (tx.type !== 'expense') continue;
+    if (tx.type !== 'expense' || tx.isOpeningBalance) continue;
     const cat = tx.categoryId || tx.category || 'Прочее';
     if (recCategorySet.has(cat.toLowerCase())) continue;
     if (!byCat[cat]) byCat[cat] = { pastTotal: 0, currentSpent: 0 };

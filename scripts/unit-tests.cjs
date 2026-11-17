@@ -26,7 +26,12 @@ async function runTests() {
   } = await import(financeCoreUrl);
 
   const { parseCsvText } = await import(csvUrl);
-  const { buildBudgetXlsxSheets, buildBudgetXlsxBytes } = await import(exportImportUrl);
+  const {
+    buildBudgetXlsxSheets,
+    buildBudgetXlsxBytes,
+    buildStructuredCsvString,
+    parseImportedBackupContent,
+  } = await import(exportImportUrl);
 
   console.log('🧪 Running Family Budget v0.8.2 Core Unit Tests (Direct ES Module Imports)...');
 
@@ -330,7 +335,91 @@ async function runTests() {
     console.log('  ✅ Test 10 PASSED: Partner no-double-counting & transfer serialization in XLSX');
   }
 
-  console.log('🎉 All 10 test suites in unit-tests.cjs PASSED!');
+  // Test 11: Opening balance isolation from monthly flows & CSV/XLSX round-trip
+  {
+    const txsWithOpening = [
+      { id: 'op1', date: '2026-11-01', type: 'income', amount: 150000, account: 'personal', author: 'husband', category: 'Начальный остаток', title: 'Начальный остаток счета', isOpeningBalance: true },
+      { id: 'op2', date: '2026-11-01', type: 'income', amount: 80000, account: 'shared', author: 'husband', category: 'Начальный остаток', title: 'Начальный остаток счета', isOpeningBalance: true },
+      { id: 'inc1', date: '2026-11-10', type: 'income', amount: 100000, account: 'personal', author: 'husband', category: 'Зарплата', title: 'Зарплата' },
+      { id: 'exp1', date: '2026-11-12', type: 'expense', amount: 25000, account: 'personal', author: 'husband', category: 'Продукты', title: 'ВкусВилл' },
+    ];
+
+    const balances = calculateWalletBalancesWithTransfers(txsWithOpening, '2026-11-30');
+    assert.strictEqual(balances.husband.balance, 225000); // 150k + 100k - 25k
+    assert.strictEqual(balances.shared.balance, 80000);   // 80k
+
+    // Opening balances must NOT inflate monthly income or savings rate
+    const comp = calculatePartnerComparison(txsWithOpening, {}, '2026-11');
+    assert.strictEqual(comp.partner1.income, 100000);
+    assert.strictEqual(comp.partner1.net, 75000);
+    assert.strictEqual(comp.partner1.savingsRate, 75);
+
+    // Negative opening balance must NOT distort historical expense forecast
+    const negOpening = [
+      { id: 'op_neg', date: '2026-10-01', type: 'expense', amount: 50000, account: 'personal', author: 'husband', category: 'Начальный остаток', title: 'Овердрафт старт', isOpeningBalance: true },
+    ];
+    const forecast = calculateHistoricalForecast(negOpening, [], '2026-11');
+    assert.strictEqual(forecast.categories.length, 0);
+
+    // CSV round-trip preserves isOpeningBalance
+    const csvStr = buildStructuredCsvString({
+      selectedMonth: '2026-11',
+      activeWalletCard: 'husband',
+      stats: {
+        shared: { balance: 80000, monthIncome: 0, monthExpense: 0 },
+        husbandPersonal: { balance: 225000, monthIncome: 100000, monthExpense: 25000 },
+        wifePersonal: { balance: 0, monthIncome: 0, monthExpense: 0 },
+        dailyAvailable: 2000,
+      },
+      expenseForecastData: { rows: [] },
+      recurringPayments: [],
+      debts: [],
+      goals: [],
+      customCategories: [],
+      transactions: txsWithOpening,
+    });
+    const parsedCsv = parseImportedBackupContent({
+      content: csvStr,
+      fileName: 'backup.csv',
+      isMerge: false,
+      currentState: {},
+    });
+    assert.strictEqual(parsedCsv.ok, true);
+    const restoredOp = parsedCsv.nextState.transactions.find(t => t.id === 'op1');
+    assert.ok(restoredOp && restoredOp.isOpeningBalance === true);
+
+    // XLSX classifies opening balance properly
+    const sheets = buildBudgetXlsxSheets({
+      selectedMonth: '2026-11',
+      stats: {
+        shared: { balance: 80000, monthIncome: 0, monthExpense: 0, consumerExpense: 0, savedAndDebtPaid: 0 },
+        husbandPersonal: { balance: 225000, monthIncome: 100000, monthExpense: 25000 },
+        wifePersonal: { balance: 0, monthIncome: 0, monthExpense: 0 },
+        unpaidMandatoryThisMonth: 0,
+        dailyAvailable: 2000,
+        hasCashGap: false,
+        cashGapAmount: 0,
+        daysLeft: 10,
+        totalSavings: 0,
+        totalTargetSavings: 0,
+        totalDebtRemaining: 0,
+        totalDebtInitial: 0,
+      },
+      pendingBillsCount: 0,
+      transactions: txsWithOpening,
+      expenseForecastData: { rows: [] },
+      recurringPayments: [],
+      goals: [],
+      debts: [],
+      safeProfiles: {},
+    });
+    const opRow = sheets.find(s => s.name === '2_Операции').rows.find(r => r[0] === 'op1');
+    assert.strictEqual(opRow[3], 'Начальный остаток');
+
+    console.log('  ✅ Test 11 PASSED: Opening balance isolation from monthly flows & CSV/XLSX round-trip');
+  }
+
+  console.log('🎉 All 11 test suites in unit-tests.cjs PASSED!');
 }
 
 runTests().catch((err) => {
