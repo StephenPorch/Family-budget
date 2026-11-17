@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { GOAL_COLOR_PRESETS, QUICK_GOAL_ICONS, DEFAULT_EXPENSE_CATEGORIES } from '../../utils/storage.js';
+import { GOAL_COLOR_PRESETS, QUICK_GOAL_ICONS, DEFAULT_EXPENSE_CATEGORIES, QUICK_USER_AVATARS } from '../../utils/storage.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { useBackdropDismiss } from '../../hooks/useBackdropDismiss.js';
 import { calculateHorizonDays } from '../../utils/financeCore.js';
@@ -20,12 +20,19 @@ export const GoalActionModal = React.memo(function GoalActionModal({
   goalActionDate,
   setGoalActionDate,
   currentUser,
+  userProfiles,
   onSubmit,
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
   const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen) return null;
+
+  const ownerKey = currentUser === 'wife' ? 'wife' : 'husband';
+  const ownerProfile = userProfiles?.[ownerKey] || {
+    name: ownerKey === 'wife' ? 'Партнер 2' : 'Партнер 1',
+    emoji: ownerKey === 'wife' ? '👩🏼' : '🧔🏻‍♂️',
+  };
 
   return (
     <div
@@ -103,11 +110,12 @@ export const GoalActionModal = React.memo(function GoalActionModal({
               <button
                 type="button"
                 onClick={() => setGoalSourceAccount('personal')}
-                className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
+                className={`h-8 px-1.5 rounded-lg font-medium transition flex items-center justify-center gap-1 truncate ${
                   goalSourceAccount === 'personal' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
                 }`}
               >
-                {currentUser === 'husband' ? '🧔🏻‍♂️ Личный (Муж)' : '👩🏼 Личный (Жена)'}
+                <span>{ownerProfile.emoji}</span>
+                <span className="truncate">Личный ({ownerProfile.name})</span>
               </button>
             </div>
           </div>
@@ -319,12 +327,16 @@ export const RecurringFormModal = React.memo(function RecurringFormModal({
   newRecMandatory,
   setNewRecMandatory,
   customCategories,
+  userProfiles,
   onSubmit,
 }) {
   const modalRef = useRef(null);
   useFocusTrap(isOpen, modalRef);
   const backdropDismiss = useBackdropDismiss(onClose);
   if (!isOpen) return null;
+
+  const p1 = userProfiles?.husband || { name: 'Партнер 1', emoji: '🧔🏻‍♂️' };
+  const p2 = userProfiles?.wife || { name: 'Партнер 2', emoji: '👩🏼' };
 
   return (
     <div
@@ -422,11 +434,12 @@ export const RecurringFormModal = React.memo(function RecurringFormModal({
                   setNewRecAccount('personal');
                   setNewRecAuthor('husband');
                 }}
-                className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
+                className={`h-8 px-1 rounded-lg font-medium transition flex items-center justify-center gap-1 truncate ${
                   newRecAccount === 'personal' && newRecAuthor === 'husband' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
                 }`}
               >
-                🧔🏻‍♂️ Муж
+                <span>{p1.emoji}</span>
+                <span className="truncate">{p1.name}</span>
               </button>
               <button
                 type="button"
@@ -434,11 +447,12 @@ export const RecurringFormModal = React.memo(function RecurringFormModal({
                   setNewRecAccount('personal');
                   setNewRecAuthor('wife');
                 }}
-                className={`h-8 rounded-lg font-medium transition flex items-center justify-center ${
+                className={`h-8 px-1 rounded-lg font-medium transition flex items-center justify-center gap-1 truncate ${
                   newRecAccount === 'personal' && newRecAuthor === 'wife' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
                 }`}
               >
-                👩🏼 Жена
+                <span>{p2.emoji}</span>
+                <span className="truncate">{p2.name}</span>
               </button>
             </div>
           </div>
@@ -921,8 +935,6 @@ export const ProfileEditModal = React.memo(function ProfileEditModal({
     onClose();
   };
 
-  const AVATARS = ['🧔🏻‍♂️', '👩🏼', '🧑🏻‍💻', '👩🏻‍🎨', '🦁', '🦊', '🐱', '🚀', '⚡', '💎', '🎯', '☕', '🎮', '🌸', '☀️', '🌿'];
-
   return (
     <div
       {...backdropDismiss}
@@ -980,7 +992,7 @@ export const ProfileEditModal = React.memo(function ProfileEditModal({
               </div>
             </div>
             <div className="flex gap-1.5 flex-wrap pt-1">
-              {AVATARS.slice(0, 8).map((av) => (
+              {QUICK_USER_AVATARS.slice(0, 8).map((av) => (
                 <button
                   key={av}
                   type="button"
@@ -1023,7 +1035,7 @@ export const ProfileEditModal = React.memo(function ProfileEditModal({
               </div>
             </div>
             <div className="flex gap-1.5 flex-wrap pt-1">
-              {AVATARS.slice(8).map((av) => (
+              {QUICK_USER_AVATARS.slice(8).map((av) => (
                 <button
                   key={av}
                   type="button"

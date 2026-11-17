@@ -1,26 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  Wallet, Plus, Calendar, User, X,
-  Sparkles, ChevronRight, ChevronLeft, Search, Trash2,
-  SlidersHorizontal, RotateCcw, Edit3, Check, LayoutGrid,
-  ListOrdered, Target, ArrowUpRight, ShieldCheck,
-  CheckCircle2, FileSpreadsheet, Bell, TrendingUp, AlertCircle, ArrowRightLeft,
-  CreditCard, Users, BarChart3
+  Wallet, Plus, User, X,
+  ChevronRight, ChevronLeft, RotateCcw, LayoutGrid,
+  ListOrdered, Target, ShieldCheck, FileSpreadsheet
 } from 'lucide-react';
 
 import {
   getLocalDateString,
   getCurrentMonthPrefix,
   getTargetDateForMonth,
-  normalizeImportedDate,
-  parseImportedAmount,
-  MONTH_NAMES_NOMINATIVE,
   MONTH_NAMES_SHORT,
   formatMonthTitle,
   formatDateGroupHeader,
 } from './utils/dateUtils.js';
 
 import {
+  APP_VERSION,
   loadFromStorage,
   saveToStorage,
   INITIAL_TRANSACTIONS,
@@ -33,8 +28,6 @@ import {
   DEFAULT_SAFE_LIMIT_CONFIG,
 } from './utils/storage.js';
 
-import { buildXlsxBytes } from './utils/xlsx.js';
-import { toCsvLine, parseCsvText } from './utils/csv.js';
 import {
   getCategoryMeta,
   isSavingsOrDebtTx,
@@ -43,10 +36,22 @@ import {
   calculatePartnerComparison,
   calculateHorizonDays,
   getWalletKeyFromTx,
+  calculateWalletBalancesWithTransfers,
+  calculateSafeDailyBudget,
 } from './utils/financeCore.js';
 
-import { ChartsSection } from './components/analytics/ChartsSection.jsx';
-import { ReceiptCalendar } from './components/calendar/ReceiptCalendar.jsx';
+import {
+  buildBudgetXlsxBytes,
+  buildStructuredCsvString,
+  buildJsonBackupPayload,
+  buildAiPromptReport,
+  parseImportedBackupContent,
+} from './utils/exportImport.js';
+
+import { DashboardTab } from './components/tabs/DashboardTab.jsx';
+import { HistoryTab } from './components/tabs/HistoryTab.jsx';
+import { GoalsTab } from './components/tabs/GoalsTab.jsx';
+import { DebtsPlanTab } from './components/tabs/DebtsPlanTab.jsx';
 import { TransactionModal } from './components/modals/TransactionModal.jsx';
 import { ExportBackupModal } from './components/modals/ExportBackupModal.jsx';
 import {
@@ -100,7 +105,7 @@ export default function FamilyBudgetApp() {
     return INITIAL_USER_PROFILES;
   }, [userProfiles]);
 
-  // Вид аналитических графиков на вкладке «Обзор»: 'burndown' | 'rule503020' | 'dynamics'
+  // Вид аналитических графиков на вкладке «Обзор»: 'burndown' | 'rule503020' | 'dynamics' | 'partners'
   const [chartView, setChartView] = useState('burndown');
 
   // Хранилища состояния
@@ -205,6 +210,7 @@ export default function FamilyBudgetApp() {
   // Система мягких уведомлений и отмены удаления (Undo Toast)
   const [toast, setToast] = useState(null); // { message, onUndo, actionLabel }
   const toastTimerRef = useRef(null);
+  const storageWarnedRef = useRef(false);
 
   const showToast = useCallback((message, onUndo = null, actionLabel = 'Вернуть') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -214,42 +220,48 @@ export default function FamilyBudgetApp() {
     }, 6000);
   }, []);
 
-  // Сохранение в LocalStorage
+  const handleStorageQuotaError = useCallback(() => {
+    if (storageWarnedRef.current) return;
+    storageWarnedRef.current = true;
+    showToast('⚠️ Память браузера переполнена или недоступна. Сохраните JSON-бэкап!');
+  }, [showToast]);
+
+  // Сохранение в LocalStorage с защитой от переполнения квоты
   useEffect(() => {
-    saveToStorage('family_budget_txs', transactions);
-  }, [transactions]);
+    saveToStorage('family_budget_txs', transactions, handleStorageQuotaError);
+  }, [transactions, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_goals', goals);
-  }, [goals]);
+    saveToStorage('family_budget_goals', goals, handleStorageQuotaError);
+  }, [goals, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_recurring', recurringPayments);
-  }, [recurringPayments]);
+    saveToStorage('family_budget_recurring', recurringPayments, handleStorageQuotaError);
+  }, [recurringPayments, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_debts', debts);
-  }, [debts]);
+    saveToStorage('family_budget_debts', debts, handleStorageQuotaError);
+  }, [debts, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_profiles', userProfiles);
-  }, [userProfiles]);
+    saveToStorage('family_budget_profiles', userProfiles, handleStorageQuotaError);
+  }, [userProfiles, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_device_owner', deviceOwner);
-  }, [deviceOwner]);
+    saveToStorage('family_budget_device_owner', deviceOwner, handleStorageQuotaError);
+  }, [deviceOwner, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_limit_config', safeLimitConfig);
-  }, [safeLimitConfig]);
+    saveToStorage('family_budget_limit_config', safeLimitConfig, handleStorageQuotaError);
+  }, [safeLimitConfig, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_custom_categories', customCategories);
-  }, [customCategories]);
+    saveToStorage('family_budget_custom_categories', customCategories, handleStorageQuotaError);
+  }, [customCategories, handleStorageQuotaError]);
 
   useEffect(() => {
-    saveToStorage('family_budget_planned_limits', plannedCategoryLimits);
-  }, [plannedCategoryLimits]);
+    saveToStorage('family_budget_planned_limits', plannedCategoryLimits, handleStorageQuotaError);
+  }, [plannedCategoryLimits, handleStorageQuotaError]);
 
   // Закрытие модальных окон по Escape
   useEffect(() => {
@@ -376,7 +388,6 @@ export default function FamilyBudgetApp() {
 
   const pendingBillsCount = reminderSummary.pendingCount;
 
-  // Сравнительный баланс партнеров за выбранный месяц
   const partnerComparisonData = useMemo(() => {
     return calculatePartnerComparison(transactions, safeProfiles, selectedMonth);
   }, [transactions, safeProfiles, selectedMonth]);
@@ -504,12 +515,14 @@ export default function FamilyBudgetApp() {
     };
   }, [transactions, periodTransactions, recurringPayments, customCategories, plannedCategoryLimits, selectedMonth, activeWalletCard]);
 
-  // ================= ФИНАНСОВОЕ МАТЕМАТИЧЕСКОЕ ЯДРО v0.7.0 =================
+  // ================= ФИНАНСОВОЕ МАТЕМАТИЧЕСКОЕ ЯДРО (через financeCore.js) =================
   const stats = useMemo(() => {
+    const walletBalances = calculateWalletBalancesWithTransfers(transactions, endOfSelectedMonth);
+
     const shared = {
-      income: 0,
-      expense: 0,
-      balance: 0,
+      income: walletBalances.shared.income + walletBalances.shared.transferIn,
+      expense: walletBalances.shared.expense + walletBalances.shared.transferOut,
+      balance: walletBalances.shared.balance,
       monthIncome: 0,
       monthExpense: 0,
       husbandIncome: 0,
@@ -521,18 +534,18 @@ export default function FamilyBudgetApp() {
     };
 
     const husbandPersonal = {
-      income: 0,
-      expense: 0,
-      balance: 0,
+      income: walletBalances.husband.income + walletBalances.husband.transferIn,
+      expense: walletBalances.husband.expense + walletBalances.husband.transferOut,
+      balance: walletBalances.husband.balance,
       monthIncome: 0,
       monthExpense: 0,
       savedAndDebtPaid: 0,
     };
 
     const wifePersonal = {
-      income: 0,
-      expense: 0,
-      balance: 0,
+      income: walletBalances.wife.income + walletBalances.wife.transferIn,
+      expense: walletBalances.wife.expense + walletBalances.wife.transferOut,
+      balance: walletBalances.wife.balance,
       monthIncome: 0,
       monthExpense: 0,
       savedAndDebtPaid: 0,
@@ -541,10 +554,7 @@ export default function FamilyBudgetApp() {
     const categoryTotals = {};
     const prevCategoryTotals = {};
 
-    transactions.forEach(t => {
-      const txDateStr = t.date || '';
-      if (txDateStr > endOfSelectedMonth) return;
-
+    periodTransactions.forEach(t => {
       const val = Number(t.amount) || 0;
       if (t.type === 'transfer') {
         const fromW = getWalletKeyFromTx(t);
@@ -552,50 +562,27 @@ export default function FamilyBudgetApp() {
           ? t.transferTo
           : (fromW === 'shared' ? 'husband' : 'shared');
         if (fromW !== toW) {
-          if (fromW === 'shared') shared.expense += val;
-          else if (fromW === 'wife') wifePersonal.expense += val;
-          else husbandPersonal.expense += val;
-
-          if (toW === 'shared') shared.income += val;
-          else if (toW === 'wife') wifePersonal.income += val;
-          else husbandPersonal.income += val;
-        }
-        return;
-      }
-
-      const acc = t.account || 'shared';
-
-      if (acc === 'shared') {
-        if (t.type === 'income') shared.income += val;
-        else shared.expense += val;
-      } else {
-        const target = t.author === 'wife' ? wifePersonal : husbandPersonal;
-        if (t.type === 'income') target.income += val;
-        else target.expense += val;
-      }
-    });
-
-    shared.balance = shared.income - shared.expense;
-    husbandPersonal.balance = husbandPersonal.income - husbandPersonal.expense;
-    wifePersonal.balance = wifePersonal.income - wifePersonal.expense;
-
-    periodTransactions.forEach(t => {
-      const val = Number(t.amount) || 0;
-      if (t.type === 'transfer') {
-        const fromW = getWalletKeyFromTx(t);
-        const toW = t.transferTo || 'shared';
-        if (fromW !== toW) {
           if (toW === 'shared') {
             shared.monthIncome += val;
             if (fromW === 'husband') shared.husbandIncome += val;
             if (fromW === 'wife') shared.wifeIncome += val;
+          } else if (toW === 'husband') {
+            husbandPersonal.monthIncome += val;
+          } else if (toW === 'wife') {
+            wifePersonal.monthIncome += val;
           }
+
           if (fromW === 'shared') {
             shared.monthExpense += val;
+          } else if (fromW === 'husband') {
+            husbandPersonal.monthExpense += val;
+          } else if (fromW === 'wife') {
+            wifePersonal.monthExpense += val;
           }
         }
         return;
       }
+
       const acc = t.account || 'shared';
       const isSavingOrDebt = isSavingsOrDebtTx(t);
 
@@ -659,6 +646,19 @@ export default function FamilyBudgetApp() {
     const totalDebtInitial = debts.reduce((acc, d) => acc + (Number(d.initialAmount) || 0), 0);
 
     const today = new Date();
+    const todayStr = getLocalDateString(today);
+    const hasSalaryToday = transactions.some(t => {
+      if (t.date !== todayStr) return false;
+      if (t.type === 'income') {
+        const wKey = getWalletKeyFromTx(t);
+        return wKey === activeWalletCard || activeWalletCard === 'shared';
+      }
+      if (t.type === 'transfer') {
+        return t.transferTo === activeWalletCard;
+      }
+      return false;
+    });
+
     const currentYm = getCurrentMonthPrefix();
     const isPastMonth = selectedMonth !== 'all' && selectedMonth < currentYm;
     let daysLeft = 1;
@@ -669,7 +669,7 @@ export default function FamilyBudgetApp() {
       const [y, m] = selectedMonth.split('-').map(Number);
       daysInMonth = new Date(y, m, 0).getDate();
       if (selectedMonth === currentYm) {
-        const horizon = calculateHorizonDays(safeLimitConfig, today);
+        const horizon = calculateHorizonDays(safeLimitConfig, today, { waitForSalaryOnPayday: true, hasSalaryToday });
         daysLeft = horizon.days;
         daysHorizonLabel = horizon.label;
       } else if (isPastMonth) {
@@ -682,7 +682,7 @@ export default function FamilyBudgetApp() {
     } else {
       const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
       daysInMonth = dim;
-      const horizon = calculateHorizonDays(safeLimitConfig, today);
+      const horizon = calculateHorizonDays(safeLimitConfig, today, { waitForSalaryOnPayday: true, hasSalaryToday });
       daysLeft = horizon.days;
       daysHorizonLabel = horizon.label;
     }
@@ -709,16 +709,23 @@ export default function FamilyBudgetApp() {
       ? mandatoryReservesByWallet.wife
       : mandatoryReservesByWallet.shared;
 
-    // Честный расчет кассового разрыва / дефицита (исправлен дефект скрытия отрицательного баланса)
-    const rawSafeBalance = activeBalance - reserveToDeduct;
-    const hasCashGap = rawSafeBalance < 0;
-    const cashGapAmount = hasCashGap ? Math.abs(rawSafeBalance) : 0;
-    const safeBalance = Math.max(0, rawSafeBalance);
-    const dailyAvailable = isPastMonth
-      ? rawSafeBalance
-      : hasCashGap
-      ? 0
-      : Math.max(0, Math.round(safeBalance / daysLeft));
+    const safeBudgetResult = calculateSafeDailyBudget({
+      activeBalance,
+      unpaidMandatoryTotal: reserveToDeduct,
+      unpaidRecommendedTotal: 0,
+      deductMandatory: !isPastMonth,
+      deductRecommended: false,
+      daysLeft,
+      isPastMonth,
+    });
+
+    const {
+      rawSafeBalance,
+      hasCashGap,
+      cashGapAmount,
+      safeBalance,
+      dailyAvailable,
+    } = safeBudgetResult;
 
     const totalSelectedExpense = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
     const hasAnyPrevMonthData = previousMonthTransactions.length > 0;
@@ -802,7 +809,6 @@ export default function FamilyBudgetApp() {
     return transactions.find(t => t.id === editingTxId) || null;
   }, [editingTxId, transactions]);
 
-  // Проверка блокировки типа/категории (включает goalId, debtId И recurringId — исправлен дефект аудита)
   const isEditingLockedType = useMemo(() => {
     return isTransactionTypeLocked(editingTransactionObj);
   }, [editingTransactionObj]);
@@ -838,7 +844,7 @@ export default function FamilyBudgetApp() {
     });
   }, [customCategories, showToast]);
 
-  // Сохранение (добавление или редактирование) транзакции без принудительного сброса выбранного месяца
+  // Сохранение (добавление или редактирование) транзакции
   const handleSaveTransaction = useCallback((payload) => {
     const { id, amount: num, title: finalTitle, type: txType, category: selectedCategory, account: selectedAccount, author: txAuthor, fromWallet, transferTo, date: finalDate, stayOpen } = payload;
 
@@ -1129,7 +1135,7 @@ export default function FamilyBudgetApp() {
     );
   };
 
-  const openEditGoalModal = (e, goal) => {
+  const openEditGoalModal = useCallback((e, goal) => {
     e?.stopPropagation();
     setEditingGoalId(goal.id);
     setNewGoalTitle(goal.title);
@@ -1138,7 +1144,7 @@ export default function FamilyBudgetApp() {
     setNewGoalIcon(goal.icon || '🎯');
     setNewGoalColor(goal.color || GOAL_COLOR_PRESETS[0].value);
     setIsNewGoalModalOpen(true);
-  };
+  }, []);
 
   const handleCreateGoal = (e) => {
     e?.preventDefault();
@@ -1182,7 +1188,7 @@ export default function FamilyBudgetApp() {
     setIsNewGoalModalOpen(false);
   };
 
-  const handleDeleteGoal = (e, goalId) => {
+  const handleDeleteGoal = useCallback((e, goalId) => {
     e?.stopPropagation();
     const idx = goals.findIndex(item => item.id === goalId);
     if (idx === -1) return;
@@ -1204,14 +1210,14 @@ export default function FamilyBudgetApp() {
       );
       setToast(null);
     });
-  };
+  }, [goals, transactions, selectedGoalId, showToast]);
 
-  const openPayRecurringModal = (rec) => {
+  const openPayRecurringModal = useCallback((rec) => {
     setSelectedRecurringToPay(rec);
     setRecPayAmount(String(rec.amount || ''));
     setRecPayDate(getTargetDateForMonth(selectedMonth, rec.dueDate));
     setIsPayRecurringModalOpen(true);
-  };
+  }, [selectedMonth]);
 
   const handleConfirmPayRecurring = (e) => {
     e?.preventDefault();
@@ -1269,7 +1275,7 @@ export default function FamilyBudgetApp() {
     });
   };
 
-  const openEditRecurringModal = (e, rec) => {
+  const openEditRecurringModal = useCallback((e, rec) => {
     e?.stopPropagation();
     setEditingRecurringId(rec.id);
     setNewRecTitle(rec.title);
@@ -1280,7 +1286,7 @@ export default function FamilyBudgetApp() {
     setNewRecAuthor(rec.author || 'husband');
     setNewRecMandatory(rec.isMandatory !== false);
     setIsNewRecurringModalOpen(true);
-  };
+  }, []);
 
   const handleCreateRecurring = (e) => {
     e?.preventDefault();
@@ -1328,7 +1334,7 @@ export default function FamilyBudgetApp() {
     setIsNewRecurringModalOpen(false);
   };
 
-  const handleDeleteRecurring = (e, recId) => {
+  const handleDeleteRecurring = useCallback((e, recId) => {
     e?.stopPropagation();
     const idx = recurringPayments.findIndex(r => r.id === recId);
     if (idx === -1) return;
@@ -1349,7 +1355,7 @@ export default function FamilyBudgetApp() {
       );
       setToast(null);
     });
-  };
+  }, [recurringPayments, transactions, showToast]);
 
   const handlePayDebtSubmit = (e) => {
     e?.preventDefault();
@@ -1413,7 +1419,7 @@ export default function FamilyBudgetApp() {
     });
   };
 
-  const openPayDebtModal = (debt) => {
+  const openPayDebtModal = useCallback((debt) => {
     setSelectedDebtId(debt.id);
     const defAmt = (Number(debt.monthlyPayment) > 0) ? debt.monthlyPayment : Math.min(5000, Number(debt.remainingAmount) || 0);
     setDebtPayAmount(String(defAmt || ''));
@@ -1421,9 +1427,9 @@ export default function FamilyBudgetApp() {
     setDebtSourceAuthor(debt.author || currentUser);
     setDebtPayDate(getTargetDateForMonth(selectedMonth, debt.paymentDay));
     setIsPayDebtModalOpen(true);
-  };
+  }, [currentUser, selectedMonth]);
 
-  const openEditDebtModal = (e, debt) => {
+  const openEditDebtModal = useCallback((e, debt) => {
     e?.stopPropagation();
     setEditingDebtId(debt.id);
     setNewDebtTitle(debt.title);
@@ -1437,7 +1443,7 @@ export default function FamilyBudgetApp() {
     setNewDebtColor(debt.color || GOAL_COLOR_PRESETS[4].value);
     setNewDebtIsRegular(debt.isRegular !== false);
     setIsNewDebtModalOpen(true);
-  };
+  }, []);
 
   const handleCreateDebt = (e) => {
     e?.preventDefault();
@@ -1498,7 +1504,7 @@ export default function FamilyBudgetApp() {
     setIsNewDebtModalOpen(false);
   };
 
-  const handleDeleteDebt = (e, debtId) => {
+  const handleDeleteDebt = useCallback((e, debtId) => {
     e?.stopPropagation();
     const idx = debts.findIndex(d => d.id === debtId);
     if (idx === -1) return;
@@ -1520,9 +1526,9 @@ export default function FamilyBudgetApp() {
       );
       setToast(null);
     });
-  };
+  }, [debts, transactions, selectedDebtId, showToast]);
 
-  const handleApplyAutoForecastLimits = () => {
+  const handleApplyAutoForecastLimits = useCallback(() => {
     const nextLimits = { ...plannedCategoryLimits };
     expenseForecastData.rows.forEach(r => {
       if (r.autoSuggested > 0) {
@@ -1531,9 +1537,9 @@ export default function FamilyBudgetApp() {
     });
     setPlannedCategoryLimits(nextLimits);
     showToast('Плановые лимиты заполнены на основе анализа прошлых месяцев');
-  };
+  }, [plannedCategoryLimits, expenseForecastData, showToast]);
 
-  const handleSaveCategoryLimit = (categoryName) => {
+  const handleSaveCategoryLimit = useCallback((categoryName) => {
     const val = parseFloat(editingPlanValue);
     setPlannedCategoryLimits(prev => {
       const next = { ...prev };
@@ -1547,127 +1553,27 @@ export default function FamilyBudgetApp() {
     setEditingPlanCategory(null);
     setEditingPlanValue('');
     showToast(`План для «${categoryName}» сохранен`);
-  };
+  }, [editingPlanValue, showToast]);
 
-  // ================= ЭКСПОРТ И ИМПОРТ (XLSX / CSV / JSON / AI) =================
+  // ================= ЭКСПОРТ И ИМПОРТ (делегировано в exportImport.js) =================
   const handleDownloadXlsx = () => {
-    const targetYm = selectedMonth === 'all' ? getCurrentMonthPrefix() : selectedMonth;
-
-    const summaryRows = [
-      ['Показатель', 'Значение (₽ / %)', 'Период / Комментарий'],
-      ['Версия приложения', 'v0.8.0', `Дата выгрузки: ${getLocalDateString()}`],
-      ['Выбранный период', formatMonthTitle(selectedMonth), targetYm],
-      ['Кумулятивный баланс: Общий котел', stats.shared.balance, `Доходы мес: +${stats.shared.monthIncome} / Расходы мес: -${stats.shared.monthExpense}`],
-      ['Кумулятивный баланс: Личный (Муж)', stats.husbandPersonal.balance, `Доходы мес: +${stats.husbandPersonal.monthIncome} / Расходы мес: -${stats.husbandPersonal.monthExpense}`],
-      ['Кумулятивный баланс: Личный (Жена)', stats.wifePersonal.balance, `Доходы мес: +${stats.wifePersonal.monthIncome} / Расходы мес: -${stats.wifePersonal.monthExpense}`],
-      ['Потребительские расходы (Общий котел)', stats.shared.consumerExpense, 'Без учета копилок и кредитов'],
-      ['Отложено в копилки и погашено долгов', stats.shared.savedAndDebtPaid, 'Из общего котла за выбранный период'],
-      ['Резерв на неоплаченные обязательные счета', stats.unpaidMandatoryThisMonth, `Ожидает оплаты счетов: ${pendingBillsCount}`],
-      ['Безопасный дневной лимит (активный счет)', stats.dailyAvailable, stats.hasCashGap ? `Кассовый разрыв: -${stats.cashGapAmount} ₽` : `На ${stats.daysLeft} дн.`],
-      ['Всего накоплено в копилках', stats.totalSavings, `Цель: ${stats.totalTargetSavings}`],
-      ['Общий остаток по кредитам и долгам', stats.totalDebtRemaining, `Начальная сумма: ${stats.totalDebtInitial}`],
-    ];
-
-    const txRows = [
-      ['ID', 'Дата', 'Месяц', 'Тип', 'Категория', 'Название_Комментарий', 'Сумма_₽', 'Счет', 'Автор', 'ID_Копилки', 'ID_Долга', 'ID_Регулярного'],
-      ...[...transactions]
-        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-        .map(t => [
-          t.id || '',
-          t.date || '',
-          (t.date || '').slice(0, 7),
-          t.type === 'income' ? 'Доход' : 'Расход',
-          t.category || '',
-          t.title || '',
-          Number(t.amount) || 0,
-          (t.account || 'shared') === 'shared' ? 'Общий котел' : 'Личный',
-          t.author === 'wife' ? 'Жена' : 'Муж',
-          t.goalId || '',
-          t.debtId || '',
-          t.recurringId || '',
-        ])
-    ];
-
-    const planRows = [
-      ['Категория', 'Корзина_50_30_20', 'Прошлый_месяц_₽', 'Среднее_прошлых_мес_₽', 'Постоянные_счета_₽', 'Авто_прогноз_₽', 'План_на_месяц_₽', 'Факт_месяца_₽', 'Остаток_плана_₽', 'Использовано_%', 'Статус'],
-      ...expenseForecastData.rows.map(r => [
-        r.category,
-        r.meta.bucket === 'base' ? 'База (50%)' : 'Хотелки (30%)',
-        r.prevMonthSum,
-        r.avgHistorical,
-        r.recSum,
-        r.autoSuggested,
-        r.effectivePlan,
-        r.currentActual,
-        r.remainingPlan,
-        r.pctUsed,
-        r.isOverPlan ? 'Превышение плана' : 'В рамках плана',
-      ])
-    ];
-
-    const recRows = [
-      ['ID', 'Название_платежа', 'Сумма_₽', 'День_оплаты', 'Категория', 'Счет', 'Автор', 'Обязательный', 'Статус_в_месяце', 'Оплаченные_месяцы'],
-      ...recurringPayments.map(r => {
-        const st = getRecurringReminderStatus(r, targetYm);
-        return [
-          r.id,
-          r.title,
-          Number(r.amount) || 0,
-          Number(r.dueDate) || 1,
-          r.category || '',
-          (r.account || 'shared') === 'shared' ? 'Общий котел' : 'Личный',
-          r.author === 'wife' ? 'Жена' : 'Муж',
-          r.isMandatory !== false ? 'Да' : 'Нет',
-          st.label,
-          (r.paidMonths || []).join(', '),
-        ];
-      })
-    ];
-
-    const goalsDebtsRows = [
-      ['Тип_Записи', 'ID', 'Название', 'Текущее_или_Остаток_₽', 'Цель_или_Начальный_долг_₽', 'Ежемесячный_платеж_₽', 'День_платежа', 'Прогресс_%', 'Оплаченные_месяцы'],
-      ...goals.map(g => [
-        'Копилка',
-        g.id,
-        g.title,
-        Number(g.current) || 0,
-        Number(g.target) || 0,
-        0,
-        '',
-        g.target > 0 ? Math.round(((Number(g.current) || 0) / Number(g.target)) * 100) : 0,
-        '',
-      ]),
-      ...debts.map(d => {
-        const init = Number(d.initialAmount) || 1;
-        const rem = Number(d.remainingAmount) || 0;
-        const pct = Math.round((Math.max(0, init - rem) / init) * 100);
-        return [
-          'Кредит/Долг',
-          d.id,
-          d.title,
-          rem,
-          init,
-          Number(d.monthlyPayment) || 0,
-          Number(d.paymentDay) || 12,
-          pct,
-          (d.paidMonths || []).join(', '),
-        ];
-      })
-    ];
-
-    const xlsxBytes = buildXlsxBytes([
-      { name: '1_Сводка', rows: summaryRows },
-      { name: '2_Операции', rows: txRows },
-      { name: '3_План_и_Прогноз', rows: planRows },
-      { name: '4_Постоянные_счета', rows: recRows },
-      { name: '5_Копилки_и_Долги', rows: goalsDebtsRows },
-    ]);
+    const xlsxBytes = buildBudgetXlsxBytes({
+      selectedMonth,
+      stats,
+      pendingBillsCount,
+      transactions,
+      expenseForecastData,
+      recurringPayments,
+      goals,
+      debts,
+      safeProfiles,
+    });
 
     const blob = new Blob([xlsxBytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.8.0-${getLocalDateString()}.xlsx`;
+    a.download = `family-budget-v${APP_VERSION}-${getLocalDateString()}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1675,149 +1581,23 @@ export default function FamilyBudgetApp() {
     showToast('Выгружен многостраничный Excel (.xlsx) с 5 листами аналитики и операций');
   };
 
-  const buildStructuredCsvString = () => {
-    const header = [
-      'Тип_Записи',
-      'ID',
-      'Дата_или_День',
-      'Направление_или_Статус',
-      'Категория',
-      'Название_Комментарий',
-      'Сумма_или_Текущее_₽',
-      'Цель_или_Начальное_₽',
-      'Платеж_или_План_₽',
-      'Счет',
-      'Автор',
-      'Доп_Данные',
-    ];
-    const lines = [toCsvLine(header)];
-
-    lines.push(toCsvLine(['SUMMARY', 'sum_shared', getLocalDateString(), 'balance', 'Общий котел', 'Переходящий остаток общего котла', stats.shared.balance, stats.shared.monthIncome, stats.shared.monthExpense, 'shared', 'both', `Безопасный лимит: ${stats.dailyAvailable} ₽/дн.`]));
-    lines.push(toCsvLine(['SUMMARY', 'sum_husband', getLocalDateString(), 'balance', 'Личный счет мужа', 'Переходящий остаток мужа', stats.husbandPersonal.balance, stats.husbandPersonal.monthIncome, stats.husbandPersonal.monthExpense, 'personal', 'husband', '']));
-    lines.push(toCsvLine(['SUMMARY', 'sum_wife', getLocalDateString(), 'balance', 'Личный счет жены', 'Переходящий остаток жены', stats.wifePersonal.balance, stats.wifePersonal.monthIncome, stats.wifePersonal.monthExpense, 'personal', 'wife', '']));
-
-    expenseForecastData.rows.forEach(r => {
-      lines.push(toCsvLine([
-        'CATEGORY_PLAN',
-        `plan_${r.category}`,
-        selectedMonth,
-        r.meta.bucket || 'base',
-        r.category,
-        `Прогноз из прошлых мес: ${r.autoSuggested} ₽ (ср. ${r.avgHistorical} ₽)`,
-        r.currentActual,
-        r.autoSuggested,
-        r.effectivePlan,
-        activeWalletCard,
-        'both',
-        r.userCustomLimit !== undefined ? `USER_LIMIT:${r.userCustomLimit}` : 'AUTO',
-      ]));
-    });
-
-    recurringPayments.forEach(r => {
-      lines.push(toCsvLine([
-        'RECURRING',
-        r.id,
-        r.dueDate,
-        r.isMandatory !== false ? 'mandatory' : 'optional',
-        r.category || 'Дом и ЖКУ',
-        r.title,
-        r.amount,
-        '',
-        r.amount,
-        r.account || 'shared',
-        r.author || 'husband',
-        (r.paidMonths || []).join('|'),
-      ]));
-    });
-
-    debts.forEach(d => {
-      lines.push(toCsvLine([
-        'DEBT',
-        d.id,
-        d.paymentDay || 12,
-        'active',
-        'Долги и кредиты',
-        d.title,
-        d.remainingAmount,
-        d.initialAmount,
-        d.monthlyPayment,
-        d.account || 'shared',
-        d.author || 'husband',
-        `${d.icon || '💳'};${d.color || 'from-rose-500 to-red-500'};${(d.paidMonths || []).join('|')};${d.isRegular === false ? 'flexible' : 'regular'}`,
-      ]));
-    });
-
-    goals.forEach(g => {
-      lines.push(toCsvLine([
-        'GOAL',
-        g.id,
-        '',
-        'active',
-        'Накопления',
-        g.title,
-        g.current,
-        g.target,
-        '',
-        'shared',
-        'both',
-        `${g.icon || '🎯'};${g.color || 'from-amber-500 to-orange-500'}`,
-      ]));
-    });
-
-    customCategories.forEach(c => {
-      lines.push(toCsvLine([
-        'CUSTOM_CATEGORY',
-        c.id,
-        '',
-        c.type || 'expense',
-        c.name,
-        c.name,
-        0,
-        0,
-        0,
-        'shared',
-        'both',
-        `${c.icon || '🏷️'};${c.color || 'bg-stone-100 text-stone-700'};${c.bucket || 'base'}`,
-      ]));
-    });
-
-    [...transactions]
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      .forEach(t => {
-        const links = [
-          t.goalId ? `goal:${t.goalId}` : '',
-          t.debtId ? `debt:${t.debtId}` : '',
-          t.recurringId ? `rec:${t.recurringId}` : '',
-          t.transferTo ? `to:${t.transferTo}` : '',
-          t.fromWallet ? `from:${t.fromWallet}` : '',
-        ].filter(Boolean).join('|');
-
-        lines.push(toCsvLine([
-          'TRANSACTION',
-          t.id,
-          t.date,
-          t.type,
-          t.category,
-          t.title,
-          t.amount,
-          '',
-          '',
-          t.account || 'shared',
-          t.author || 'husband',
-          links,
-        ]));
-      });
-
-    return '\uFEFF' + lines.join('\r\n');
-  };
-
   const handleDownloadCsv = () => {
-    const csvContent = buildStructuredCsvString();
+    const csvContent = buildStructuredCsvString({
+      selectedMonth,
+      activeWalletCard,
+      stats,
+      expenseForecastData,
+      recurringPayments,
+      debts,
+      goals,
+      customCategories,
+      transactions,
+    });
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.8.0-backup-${getLocalDateString()}.csv`;
+    a.download = `family-budget-v${APP_VERSION}-backup-${getLocalDateString()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1826,9 +1606,7 @@ export default function FamilyBudgetApp() {
   };
 
   const handleDownloadJson = () => {
-    const payload = {
-      version: '0.8.0',
-      exportedAt: new Date().toISOString(),
+    const payload = buildJsonBackupPayload({
       transactions,
       goals,
       recurringPayments,
@@ -1838,12 +1616,12 @@ export default function FamilyBudgetApp() {
       userProfiles,
       deviceOwner,
       safeLimitConfig,
-    };
+    });
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-budget-v0.8.0-backup-${getLocalDateString()}.json`;
+    a.download = `family-budget-v${APP_VERSION}-backup-${getLocalDateString()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1851,43 +1629,17 @@ export default function FamilyBudgetApp() {
     showToast('Полный JSON-бэкап сохранен');
   };
 
-  const buildAiPromptReport = () => {
-    const targetYm = selectedMonth === 'all' ? getCurrentMonthPrefix() : selectedMonth;
-    const lines = [
-      `Проведи финансовый аудит нашего семейного бюджета за период ${formatMonthTitle(selectedMonth)} (${targetYm}).`,
-      `Укажи узкие места, оцени соблюдение правила 50/30/20, проверь нагрузку постоянных платежей и предложи конкретные шаги по оптимизации трат на следующий месяц.`,
-      ``,
-      `=== 1. БАЛАНСЫ И ПОТОКИ ===`,
-      `- Общий котел (кумулятивный остаток): ${stats.shared.balance.toLocaleString('ru-RU')} ₽ (за месяц Доходы: +${stats.shared.monthIncome.toLocaleString('ru-RU')} ₽, Расходы: -${stats.shared.monthExpense.toLocaleString('ru-RU')} ₽, из них потребительские: ${stats.shared.consumerExpense.toLocaleString('ru-RU')} ₽, отложено/кредиты: ${stats.shared.savedAndDebtPaid.toLocaleString('ru-RU')} ₽)`,
-      `- Личный счет мужа: ${stats.husbandPersonal.balance.toLocaleString('ru-RU')} ₽ (+${stats.husbandPersonal.monthIncome.toLocaleString('ru-RU')} / -${stats.husbandPersonal.monthExpense.toLocaleString('ru-RU')} ₽)`,
-      `- Личный счет жены: ${stats.wifePersonal.balance.toLocaleString('ru-RU')} ₽ (+${stats.wifePersonal.monthIncome.toLocaleString('ru-RU')} / -${stats.wifePersonal.monthExpense.toLocaleString('ru-RU')} ₽)`,
-      `- Резерв на неоплаченные обязательные счета месяца: ${stats.unpaidMandatoryThisMonth.toLocaleString('ru-RU')} ₽`,
-      `- Безопасный дневной лимит: ${stats.hasCashGap ? `Кассовый разрыв -${stats.cashGapAmount.toLocaleString('ru-RU')} ₽` : `${stats.dailyAvailable.toLocaleString('ru-RU')} ₽/день (осталось дней: ${stats.daysLeft})`}`,
-      ``,
-      `=== 2. ПЛАН / ПРОГНОЗ ПО КАТЕГОРИЯМ (ИЗ АНАЛИЗА ПРОШЛЫХ МЕСЯЦЕВ) ===`,
-      ...expenseForecastData.rows.map(r =>
-        `- ${r.category} [${r.meta.bucket === 'base' ? 'База' : 'Хотелки'}]: Факт = ${r.currentActual} ₽ | План/Прогноз = ${r.effectivePlan} ₽ (Среднее за прошлые мес: ${r.avgHistorical} ₽, Прошлый мес: ${r.prevMonthSum} ₽)`
-      ),
-      ``,
-      `=== 3. ПОСТОЯННЫЕ ОБЯЗАТЕЛЬНЫЕ ПЛАТЕЖИ ===`,
-      ...recurringPayments.map(r => {
-        const st = getRecurringReminderStatus(r, targetYm);
-        return `- ${r.title}: ${r.amount} ₽ (до ${r.dueDate}-го числа, ${r.category}) — ${st.label}`;
-      }),
-      ``,
-      `=== 4. ДОЛГИ И КОПИЛКИ ===`,
-      ...debts.map(d => `- Кредит «${d.title}»: остаток ${d.remainingAmount} ₽ из ${d.initialAmount} ₽ (платеж ${d.monthlyPayment} ₽ до ${d.paymentDay}-го)`),
-      ...goals.map(g => `- Копилка «${g.title}»: накоплено ${g.current} ₽ из ${g.target} ₽`),
-      ``,
-      `=== 5. ОПЕРАЦИИ ВЫБРАННОГО ПЕРИОДА (${periodTransactions.length} шт.) ===`,
-      `Дата;Тип;Категория;Название;Сумма_₽;Счет;Автор`,
-      ...periodTransactions.map(t => `${t.date};${t.type};${t.category};${t.title};${t.amount};${t.account || 'shared'};${t.author || 'husband'}`),
-    ];
-    return lines.join('\n');
-  };
-
   const handleCopyAiReport = () => {
-    const text = buildAiPromptReport();
+    const text = buildAiPromptReport({
+      selectedMonth,
+      stats,
+      expenseForecastData,
+      recurringPayments,
+      debts,
+      goals,
+      periodTransactions,
+      safeProfiles,
+    });
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text);
@@ -1905,25 +1657,6 @@ export default function FamilyBudgetApp() {
     }
   };
 
-  // Дедупликация и слияние массивов при режиме importMode === 'merge'
-  const mergeUniqueByIdOrSignature = (existingList, incomingList, getSig) => {
-    const map = new Map();
-    const sigSet = new Set();
-    existingList.forEach(item => {
-      map.set(item.id, item);
-      if (getSig) sigSet.add(getSig(item));
-    });
-    incomingList.forEach(item => {
-      const sig = getSig ? getSig(item) : null;
-      if (!map.has(item.id) && (!sig || !sigSet.has(sig))) {
-        map.set(item.id, item);
-        if (sig) sigSet.add(sig);
-      }
-    });
-    return Array.from(map.values());
-  };
-
-  // Импорт бэкапа или банковской выписки (.csv / .json) с поддержкой Merge/Replace и дат DD.MM.YYYY
   const handleImportFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1935,242 +1668,52 @@ export default function FamilyBudgetApp() {
       debts,
       customCategories,
       plannedCategoryLimits,
+      userProfiles,
+      deviceOwner,
+      safeLimitConfig,
     };
 
     const isMerge = importMode === 'merge';
-    const txSig = (t) => `${t.date}|${t.type}|${t.amount}|${(t.title || '').toLowerCase()}|${t.account || 'shared'}`;
-
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
         const content = String(evt.target?.result || '');
-        if (file.name.toLowerCase().endsWith('.json') || content.trim().startsWith('{')) {
-          const parsed = JSON.parse(content);
-          if (Array.isArray(parsed.transactions)) {
-            const normTxs = parsed.transactions.map(t => ({ ...t, date: normalizeImportedDate(t.date) }));
-            setTransactions(prev => isMerge ? mergeUniqueByIdOrSignature(prev, normTxs, txSig) : normTxs);
-          }
-          if (Array.isArray(parsed.goals)) {
-            setGoals(prev => isMerge ? mergeUniqueByIdOrSignature(prev, parsed.goals, g => g.title) : parsed.goals);
-          }
-          if (Array.isArray(parsed.recurringPayments)) {
-            setRecurringPayments(prev => isMerge ? mergeUniqueByIdOrSignature(prev, parsed.recurringPayments, r => r.title) : parsed.recurringPayments);
-          }
-          if (Array.isArray(parsed.debts)) {
-            setDebts(prev => isMerge ? mergeUniqueByIdOrSignature(prev, parsed.debts, d => d.title) : parsed.debts);
-          }
-          if (Array.isArray(parsed.customCategories)) {
-            setCustomCategories(prev => isMerge ? mergeUniqueByIdOrSignature(prev, parsed.customCategories, c => c.name) : parsed.customCategories);
-          }
-          if (parsed.plannedCategoryLimits && typeof parsed.plannedCategoryLimits === 'object') {
-            setPlannedCategoryLimits(prev => isMerge ? { ...prev, ...parsed.plannedCategoryLimits } : parsed.plannedCategoryLimits);
-          }
-          if (parsed.userProfiles && typeof parsed.userProfiles === 'object') {
-            setUserProfiles(prev => isMerge ? { ...prev, ...parsed.userProfiles } : parsed.userProfiles);
-          }
-          if (parsed.deviceOwner && (parsed.deviceOwner === 'husband' || parsed.deviceOwner === 'wife')) {
-            setDeviceOwner(parsed.deviceOwner);
-          }
-          if (parsed.safeLimitConfig && typeof parsed.safeLimitConfig === 'object') {
-            setSafeLimitConfig(parsed.safeLimitConfig);
-          }
-          setIsExportModalOpen(false);
-          showToast(
-            isMerge
-              ? `База дополнена из JSON (${(parsed.transactions || []).length} записей проверено)`
-              : `Бэкап из JSON полностью восстановлен`,
-            () => {
-              setTransactions(prevSnapshot.transactions);
-              setGoals(prevSnapshot.goals);
-              setRecurringPayments(prevSnapshot.recurringPayments);
-              setDebts(prevSnapshot.debts);
-              setCustomCategories(prevSnapshot.customCategories);
-              setPlannedCategoryLimits(prevSnapshot.plannedCategoryLimits);
-              setToast(null);
-            }
-          );
+        const result = parseImportedBackupContent({
+          content,
+          fileName: file.name,
+          isMerge,
+          currentState: prevSnapshot,
+        });
+
+        if (!result.ok) {
+          showToast(result.message);
           return;
         }
 
-        const rows = parseCsvText(content);
-        if (rows.length < 2) {
-          showToast('Файл пуст или не содержит строк данных');
-          return;
-        }
+        const ns = result.nextState || {};
+        if (ns.transactions) setTransactions(ns.transactions);
+        if (ns.goals) setGoals(ns.goals);
+        if (ns.recurringPayments) setRecurringPayments(ns.recurringPayments);
+        if (ns.debts) setDebts(ns.debts);
+        if (ns.customCategories) setCustomCategories(ns.customCategories);
+        if (ns.plannedCategoryLimits) setPlannedCategoryLimits(ns.plannedCategoryLimits);
+        if (ns.userProfiles) setUserProfiles(ns.userProfiles);
+        if (ns.deviceOwner) setDeviceOwner(ns.deviceOwner);
+        if (ns.safeLimitConfig) setSafeLimitConfig(ns.safeLimitConfig);
 
-        const header = rows[0].map(h => h.trim());
-        const isStructuredBackup = header[0] === 'Тип_Записи';
-
-        if (isStructuredBackup) {
-          const nextTxs = [];
-          const nextRecs = [];
-          const nextDebts = [];
-          const nextGoals = [];
-          const nextCats = [];
-          const nextLimits = {};
-
-          rows.slice(1).forEach((r, idx) => {
-            const [recType, id, dateOrDay, dirOrStatus, category, title, amountCur, targetInit, payPlan, account, author, extra] = r;
-            if (recType === 'TRANSACTION') {
-              const extraParts = (extra || '').split('|');
-              const goalLink = extraParts.find(x => x.startsWith('goal:'))?.slice(5);
-              const debtLink = extraParts.find(x => x.startsWith('debt:'))?.slice(5);
-              const recLink = extraParts.find(x => x.startsWith('rec:'))?.slice(4);
-              const toLink = extraParts.find(x => x.startsWith('to:'))?.slice(3);
-              const fromLink = extraParts.find(x => x.startsWith('from:'))?.slice(5);
-              const parsedType = (dirOrStatus === 'transfer' || dirOrStatus === 'Перевод')
-                ? 'transfer'
-                : (dirOrStatus === 'income' || dirOrStatus === 'Доход' ? 'income' : 'expense');
-              nextTxs.push({
-                id: id || `imp_tx_${Date.now()}_${idx}`,
-                date: normalizeImportedDate(dateOrDay),
-                type: parsedType,
-                category: category || 'Продукты',
-                title: title || category || 'Операция',
-                amount: parseImportedAmount(amountCur),
-                account: account === 'personal' || account === 'Личный' ? 'personal' : 'shared',
-                author: author === 'wife' || author === 'Жена' ? 'wife' : 'husband',
-                ...(goalLink ? { goalId: goalLink } : {}),
-                ...(debtLink ? { debtId: debtLink } : {}),
-                ...(recLink ? { recurringId: recLink } : {}),
-                ...(toLink ? { transferTo: toLink } : {}),
-                ...(fromLink ? { fromWallet: fromLink } : {}),
-              });
-            } else if (recType === 'RECURRING') {
-              nextRecs.push({
-                id: id || `imp_rec_${idx}`,
-                title: title || category || 'Платеж',
-                amount: parseImportedAmount(amountCur),
-                dueDate: Number(dateOrDay) || 15,
-                category: category || 'Дом и ЖКУ',
-                account: account === 'personal' ? 'personal' : 'shared',
-                author: author === 'wife' ? 'wife' : 'husband',
-                isMandatory: dirOrStatus !== 'optional',
-                paidMonths: (extra || '').split('|').filter(Boolean),
-              });
-            } else if (recType === 'DEBT') {
-              const [icon, color, paidStr, regFlag] = (extra || '').split(';');
-              const isReg = regFlag !== 'flexible';
-              nextDebts.push({
-                id: id || `imp_debt_${idx}`,
-                title: title || 'Кредит',
-                remainingAmount: parseImportedAmount(amountCur),
-                initialAmount: parseImportedAmount(targetInit) || parseImportedAmount(amountCur) || 100000,
-                monthlyPayment: isReg ? (parseImportedAmount(payPlan) || 10000) : 0,
-                paymentDay: Number(dateOrDay) || 12,
-                account: account === 'personal' ? 'personal' : 'shared',
-                author: author === 'wife' ? 'wife' : 'husband',
-                isRegular: isReg,
-                icon: icon || '💳',
-                color: color || 'from-rose-500 to-red-500',
-                paidMonths: (paidStr || '').split('|').filter(Boolean),
-              });
-            } else if (recType === 'GOAL') {
-              const [icon, color] = (extra || '').split(';');
-              nextGoals.push({
-                id: id || `imp_goal_${idx}`,
-                title: title || 'Цель',
-                current: parseImportedAmount(amountCur),
-                target: parseImportedAmount(targetInit) || 100000,
-                icon: icon || '🎯',
-                color: color || 'from-amber-500 to-orange-500',
-              });
-            } else if (recType === 'CUSTOM_CATEGORY') {
-              const [icon, color, bucket] = (extra || '').split(';');
-              nextCats.push({
-                id: id || `imp_cat_${idx}`,
-                name: category || title,
-                type: dirOrStatus === 'income' ? 'income' : 'expense',
-                icon: icon || '🏷️',
-                color: color || 'bg-stone-100 text-stone-700',
-                bucket: bucket || 'base',
-              });
-            } else if (recType === 'CATEGORY_PLAN') {
-              if ((extra || '').startsWith('USER_LIMIT:')) {
-                const lim = Number(extra.split(':')[1]);
-                if (lim > 0 && category) nextLimits[category] = lim;
-              }
-            }
-          });
-
-          if (nextTxs.length > 0) {
-            setTransactions(prev => isMerge ? mergeUniqueByIdOrSignature(prev, nextTxs, txSig) : nextTxs);
-          }
-          if (nextRecs.length > 0) {
-            setRecurringPayments(prev => isMerge ? mergeUniqueByIdOrSignature(prev, nextRecs, r => r.title) : nextRecs);
-          }
-          if (nextDebts.length > 0) {
-            setDebts(prev => isMerge ? mergeUniqueByIdOrSignature(prev, nextDebts, d => d.title) : nextDebts);
-          }
-          if (nextGoals.length > 0) {
-            setGoals(prev => isMerge ? mergeUniqueByIdOrSignature(prev, nextGoals, g => g.title) : nextGoals);
-          }
-          if (nextCats.length > 0) {
-            setCustomCategories(prev => isMerge ? mergeUniqueByIdOrSignature(prev, nextCats, c => c.name) : nextCats);
-          }
-          if (Object.keys(nextLimits).length > 0) {
-            setPlannedCategoryLimits(prev => isMerge ? { ...prev, ...nextLimits } : nextLimits);
-          }
-
-          setIsExportModalOpen(false);
-          showToast(
-            isMerge
-              ? `Данные из CSV объединены с базой (+${nextTxs.length} операций)`
-              : `Полный бэкап из CSV восстановлен (${nextTxs.length} операций)`,
-            () => {
-              setTransactions(prevSnapshot.transactions);
-              setGoals(prevSnapshot.goals);
-              setRecurringPayments(prevSnapshot.recurringPayments);
-              setDebts(prevSnapshot.debts);
-              setCustomCategories(prevSnapshot.customCategories);
-              setPlannedCategoryLimits(prevSnapshot.plannedCategoryLimits);
-              setToast(null);
-            }
-          );
-        } else {
-          // Импорт банковской выписки или произвольного CSV с автонормализацией дат DD.MM.YYYY
-          const importedTxs = rows.slice(1).map((r, idx) => {
-            const hasIdCol = r.length >= 7;
-            const rawDate = hasIdCol ? r[1] : r[0];
-            const rawType = hasIdCol ? r[3] : r[1];
-            const rawCat = hasIdCol ? r[4] : r[2];
-            const rawTitle = hasIdCol ? r[5] : r[3];
-            const rawAmount = hasIdCol ? (r[6] || r[2]) : (r[4] || r[2]);
-            const rawAcc = hasIdCol ? r[7] : r[5];
-            const rawAuth = hasIdCol ? r[8] : r[6];
-
-            const isInc = String(rawType || '').toLowerCase().includes('доход') ||
-                          String(rawType || '').toLowerCase() === 'income' ||
-                          String(rawAmount || '').trim().startsWith('+');
-
-            return {
-              id: (hasIdCol && r[0]) ? r[0] : `csv_tx_${Date.now()}_${idx}`,
-              date: normalizeImportedDate(rawDate),
-              type: isInc ? 'income' : 'expense',
-              category: rawCat || 'Продукты',
-              title: rawTitle || rawCat || 'Операция из CSV',
-              amount: parseImportedAmount(rawAmount),
-              account: String(rawAcc || '').toLowerCase().includes('личн') || rawAcc === 'personal' ? 'personal' : 'shared',
-              author: String(rawAuth || '').toLowerCase().includes('жен') || rawAuth === 'wife' ? 'wife' : 'husband',
-            };
-          }).filter(t => t.amount > 0);
-
-          if (importedTxs.length > 0) {
-            setTransactions(prev => isMerge ? mergeUniqueByIdOrSignature(prev, importedTxs, txSig) : importedTxs);
-            setIsExportModalOpen(false);
-            showToast(
-              isMerge
-                ? `Добавлено ${importedTxs.length} операций из CSV к текущей истории`
-                : `База заменена: загружено ${importedTxs.length} операций из CSV`,
-              () => {
-                setTransactions(prevSnapshot.transactions);
-                setToast(null);
-              }
-            );
-          } else {
-            showToast('Не найдено корректных строк с суммами для импорта');
-          }
-        }
+        setIsExportModalOpen(false);
+        showToast(result.message, () => {
+          setTransactions(prevSnapshot.transactions);
+          setGoals(prevSnapshot.goals);
+          setRecurringPayments(prevSnapshot.recurringPayments);
+          setDebts(prevSnapshot.debts);
+          setCustomCategories(prevSnapshot.customCategories);
+          setPlannedCategoryLimits(prevSnapshot.plannedCategoryLimits);
+          setUserProfiles(prevSnapshot.userProfiles);
+          setDeviceOwner(prevSnapshot.deviceOwner);
+          setSafeLimitConfig(prevSnapshot.safeLimitConfig);
+          setToast(null);
+        });
       } catch (err) {
         console.error('Import failed:', err);
         showToast('Не удалось прочитать файл бэкапа. Проверьте формат CSV или JSON.');
@@ -2215,10 +1758,10 @@ export default function FamilyBudgetApp() {
     setCustomCategories([]);
     setPlannedCategoryLimits({});
     setIsExportModalOpen(false);
-    showToast('Демонстрационные данные v0.8.0 восстановлены');
+    showToast(`Демонстрационные данные v${APP_VERSION} восстановлены`);
   };
 
-  // Фильтрация истории операций
+  // Фильтрация истории операций (поиск по названию, категории и сумме)
   const filteredTransactions = useMemo(() => {
     return periodTransactions.filter(tx => {
       if (selectedCalendarDate && tx.date !== selectedCalendarDate) return false;
@@ -2226,7 +1769,8 @@ export default function FamilyBudgetApp() {
         const q = searchQuery.toLowerCase().trim();
         const matchTitle = (tx.title || '').toLowerCase().includes(q);
         const matchCategory = (tx.category || '').toLowerCase().includes(q);
-        if (!matchTitle && !matchCategory) return false;
+        const matchAmount = String(tx.amount ?? '').toLowerCase().includes(q);
+        if (!matchTitle && !matchCategory && !matchAmount) return false;
       }
       if (filterAuthor !== 'all' && tx.author !== filterAuthor) return false;
       if (filterType !== 'all' && tx.type !== filterType) return false;
@@ -2300,15 +1844,15 @@ export default function FamilyBudgetApp() {
 
   const hasActiveFilters = searchQuery.trim() !== '' || activeFilterCount > 0;
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setSearchQuery('');
     setFilterAuthor('all');
     setFilterType('all');
     setFilterAccount('all');
     setSelectedCalendarDate(null);
-  };
+  }, []);
 
-  const openWalletHistory = (walletKey) => {
+  const openWalletHistory = useCallback((walletKey) => {
     setActiveWalletCard(walletKey);
     if (walletKey === 'shared') {
       setFilterAccount('shared');
@@ -2320,7 +1864,7 @@ export default function FamilyBudgetApp() {
       setFilterAccount('personal');
       setFilterAuthor('wife');
     }
-  };
+  }, []);
 
   // ================= ДАННЫЕ ДЛЯ SVG-ГРАФИКОВ =================
   const burnDownData = useMemo(() => {
@@ -2490,104 +2034,6 @@ export default function FamilyBudgetApp() {
     return { list, maxVal };
   }, [transactions, selectedMonth, activeWalletCard]);
 
-
-  // Карточка одной строки операции (выровнена по модульной сетке 4px/8px и tabular-nums)
-  const renderTransactionRow = (tx) => {
-    const catObj = getCategoryMeta(tx.category, tx.type, customCategories);
-    const isTransfer = tx.type === 'transfer';
-    const isExpense = tx.type === 'expense';
-    const isShared = (tx.account || 'shared') === 'shared';
-    const getShortWalletLabel = (wKey) => {
-      if (wKey === 'husband') return `${safeProfiles.husband?.emoji || '🧔🏻‍♂️'} ${safeProfiles.husband?.name || 'Партнер 1'}`;
-      if (wKey === 'wife') return `${safeProfiles.wife?.emoji || '👩🏼'} ${safeProfiles.wife?.name || 'Партнер 2'}`;
-      return 'Общий котел';
-    };
-
-    return (
-      <div
-        key={tx.id}
-        onClick={() => openEditTransactionModal(tx)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            openEditTransactionModal(tx);
-          }
-        }}
-        className="min-h-[60px] py-2.5 px-3 flex items-center justify-between gap-3 hover:bg-stone-50 rounded-xl transition cursor-pointer group"
-      >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-base ${catObj.color}`}>
-            {catObj.icon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-stone-900 flex items-center gap-1.5 min-w-0">
-              <span className="truncate">{tx.title}</span>
-              {tx.goalId && (
-                <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
-                  <Target className="w-3 h-3 text-violet-600 shrink-0" />
-                  <span>Копилка</span>
-                </span>
-              )}
-              {tx.debtId && (
-                <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
-                  <CreditCard className="w-3 h-3 text-rose-600 shrink-0" />
-                  <span>Долг</span>
-                </span>
-              )}
-              {tx.recurringId && (
-                <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
-                  <ShieldCheck className="w-3 h-3 text-blue-600 shrink-0" />
-                  <span>Постоянный</span>
-                </span>
-              )}
-              {isTransfer && (
-                <span className="h-5 px-1.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/60 text-[11px] font-medium inline-flex items-center shrink-0 gap-1">
-                  <ArrowRightLeft className="w-3 h-3 text-indigo-600 shrink-0" />
-                  <span>Перевод</span>
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5 truncate">
-              <span className="truncate font-medium text-stone-600">{catObj.name}</span>
-              <span className="text-stone-300">•</span>
-              {isTransfer ? (
-                <span className="inline-flex items-center gap-1 text-indigo-700 font-medium shrink-0">
-                  <span>{getShortWalletLabel(getWalletKeyFromTx(tx))}</span>
-                  <span>→</span>
-                  <span>{getShortWalletLabel(tx.transferTo || 'shared')}</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-stone-600 shrink-0">
-                  <span>{tx.author === 'husband' ? (safeProfiles.husband?.emoji || '🧔🏻‍♂️') : (safeProfiles.wife?.emoji || '👩🏼')}</span>
-                  <span>{isShared ? 'Общий котел' : (tx.author === 'husband' ? (safeProfiles.husband?.name || 'Личный') : (safeProfiles.wife?.name || 'Личный'))}</span>
-                </span>
-              )}
-              <span className="text-stone-300">•</span>
-              <span className="text-stone-500 font-mono text-[11px] tabular-nums shrink-0">{tx.date}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <div className={`min-w-[96px] text-sm font-semibold tracking-tight text-right tabular-nums ${isTransfer ? 'text-indigo-700' : isExpense ? 'text-stone-900' : 'text-emerald-700'}`}>
-            {isTransfer ? '⇄ ' : isExpense ? '−' : '+'}{Number(tx.amount).toLocaleString('ru-RU')} ₽
-          </div>
-          <button
-            type="button"
-            onClick={(e) => handleDeleteTransaction(tx.id, e)}
-            aria-label={`Удалить операцию ${tx.title}`}
-            className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition shrink-0"
-            title="Удалить"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   const myWalletKey = deviceOwner === 'wife' ? 'wife' : 'husband';
   const partnerWalletKey = deviceOwner === 'wife' ? 'husband' : 'wife';
   const myProfile = safeProfiles[myWalletKey] || { name: 'Я', emoji: '👤' };
@@ -2597,12 +2043,11 @@ export default function FamilyBudgetApp() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans pb-28 lg:pb-12">
-      {/* Верхний бар управления — с поддержкой safe area iOS (stageshow standard) */}
+      {/* Верхний бар управления — с поддержкой safe area iOS */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-stone-200/80 pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-1.5 sm:gap-3">
           {/* Левый блок: Бренд + фиксированный капсульный селектор периода */}
           <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
-            {/* Лаконичный векторный знак кошелька (подзадача: замена на авторский SVG-логотип) */}
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold shadow-sm shrink-0" title="Семейный Бюджет">
               <Wallet className="w-4 h-4 sm:w-5 sm:h-5 text-white shrink-0" />
             </div>
@@ -2612,7 +2057,7 @@ export default function FamilyBudgetApp() {
                   Семейный Бюджет
                 </h1>
                 <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/80 text-[11px] font-mono font-medium inline-flex items-center shrink-0">
-                  v0.8.1
+                  v{APP_VERSION}
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 leading-none mt-0.5 truncate">
@@ -2620,7 +2065,7 @@ export default function FamilyBudgetApp() {
               </p>
             </div>
 
-            {/* Капсула выбора месяца с адаптивной шириной текста — исключает сдвиги шапки */}
+            {/* Капсула выбора месяца с адаптивной шириной текста */}
             <div className="h-9 sm:h-10 px-0.5 sm:px-1 bg-stone-100 border border-stone-200/80 rounded-xl flex items-center gap-0.5 shrink-0">
               <button
                 type="button"
@@ -2652,7 +2097,7 @@ export default function FamilyBudgetApp() {
             </div>
           </div>
 
-          {/* Навигация по 4 вкладкам (Desktop) — фиксированная высота h-10 */}
+          {/* Навигация по 4 вкладкам (Desktop) */}
           <nav className="hidden lg:flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200/70 h-10 shrink-0" aria-label="Разделы приложения">
             {[
               { id: 'dashboard', label: 'Обзор', icon: LayoutGrid },
@@ -2769,1376 +2214,131 @@ export default function FamilyBudgetApp() {
 
       {/* Основной контент по вкладкам */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
-        {/* ================= ВКЛАДКА 1: ОБЗОР (ДАШБОРД) ================= */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-5 animate-fade-in">
-            {/* УМНАЯ НАПОМИНАЛКА О ГОРЯЩИХ И ПРОСРОЧЕННЫХ ОБЯЗАТЕЛЬНЫХ ПЛАТЕЖАХ */}
-            {reminderSummary.urgentRecs.length > 0 && (
-              <div className="bg-amber-50/95 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-                <div className="flex items-start sm:items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-                    <Bell className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-amber-950">
-                      Напоминалка по постоянным расходам ({reminderSummary.urgentRecs.length})
-                    </div>
-                    <div className="text-xs text-amber-900 mt-0.5 flex flex-wrap gap-x-3 gap-y-1 tabular-nums">
-                      {reminderSummary.urgentRecs.slice(0, 3).map(r => (
-                        <span key={r.id} className="inline-flex items-center gap-1">
-                          <strong>{r.title}</strong>: {Number(r.amount).toLocaleString('ru-RU')} ₽ ({r.status.label})
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                  {reminderSummary.urgentRecs.length === 1 && (
-                    <button
-                      type="button"
-                      onClick={() => openPayRecurringModal(reminderSummary.urgentRecs[0])}
-                      className="h-9 px-3.5 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center"
-                    >
-                      Оплатить сейчас
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('debts')}
-                    className="h-9 px-3.5 rounded-xl bg-white border border-amber-300 text-amber-950 text-xs font-semibold hover:bg-amber-100 transition inline-flex items-center"
-                  >
-                    К списку платежей →
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* 4 KPI-КАРТОЧКИ (Personal-First: Мой счет -> Партнер -> Семейный резерв -> Безопасный лимит) */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-stretch">
-              {/* 1. Мой личный счет (владелец устройства) */}
-              <div
-                onClick={() => setActiveWalletCard(myWalletKey)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard(myWalletKey); }}
-                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
-                  activeWalletCard === myWalletKey
-                    ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
-                    : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
-                }`}
-              >
-                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="text-xs font-semibold text-stone-600 flex items-center gap-1.5 truncate">
-                    <span>{myProfile.emoji}</span>
-                    <span className="truncate">{myProfile.name}</span>
-                  </span>
-                  <span className="h-5 px-2 rounded-md bg-stone-900 text-white text-[10px] font-semibold inline-flex items-center shrink-0">
-                    Мой счет
-                  </span>
-                </div>
-
-                <div className="my-auto">
-                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
-                    myWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
-                  }`}>
-                    {myWalletStats.balance.toLocaleString('ru-RU')}
-                    <span className="text-xs font-normal text-stone-400 ml-1">₽</span>
-                  </div>
-                  <div className={`text-xs mt-1.5 truncate ${
-                    myWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
-                  }`}>
-                    {myWalletStats.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
-                  </div>
-                </div>
-
-                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
-                  <span className="text-emerald-700 font-semibold truncate">+{myWalletStats.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-semibold truncate">−{myWalletStats.monthExpense.toLocaleString('ru-RU')}</span>
-                </div>
-              </div>
-
-              {/* 2. Личный счет партнера */}
-              <div
-                onClick={() => setActiveWalletCard(partnerWalletKey)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard(partnerWalletKey); }}
-                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
-                  activeWalletCard === partnerWalletKey
-                    ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
-                    : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
-                }`}
-              >
-                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="text-xs font-semibold text-stone-600 flex items-center gap-1.5 truncate">
-                    <span>{partnerProfile.emoji}</span>
-                    <span className="truncate">{partnerProfile.name}</span>
-                  </span>
-                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                    Партнер
-                  </span>
-                </div>
-
-                <div className="my-auto">
-                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
-                    partnerWalletStats.balance < 0 ? 'text-rose-600' : 'text-stone-900'
-                  }`}>
-                    {partnerWalletStats.balance.toLocaleString('ru-RU')}
-                    <span className="text-xs font-normal text-stone-400 ml-1">₽</span>
-                  </div>
-                  <div className={`text-xs mt-1.5 truncate ${
-                    partnerWalletStats.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
-                  }`}>
-                    {partnerWalletStats.balance < 0 ? '⚠️ Дефицит счета' : 'Переходящий остаток'}
-                  </div>
-                </div>
-
-                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
-                  <span className="text-emerald-700 font-semibold truncate">+{partnerWalletStats.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-semibold truncate">−{partnerWalletStats.monthExpense.toLocaleString('ru-RU')}</span>
-                </div>
-              </div>
-
-              {/* 3. Семейный резерв (Общий котел как подушка/копилка) */}
-              <div
-                onClick={() => setActiveWalletCard('shared')}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveWalletCard('shared'); }}
-                className={`h-[160px] p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left ${
-                  activeWalletCard === 'shared'
-                    ? 'bg-white border-stone-900 ring-2 ring-stone-900/10 shadow-md'
-                    : 'bg-white border-stone-200/80 hover:border-stone-300 shadow-sm'
-                }`}
-              >
-                <div className="h-6 flex items-center justify-between gap-1 text-stone-600">
-                  <span className="text-xs font-semibold text-stone-600 flex items-center gap-1.5 truncate">
-                    <Users className="w-3.5 h-3.5 text-stone-600 shrink-0" />
-                    <span className="truncate">Семейный резерв</span>
-                  </span>
-                  <span className="h-5 px-2 rounded-md bg-stone-100 text-stone-600 text-[10px] font-semibold inline-flex items-center shrink-0">
-                    Копилка
-                  </span>
-                </div>
-
-                <div className="my-auto">
-                  <div className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none truncate ${
-                    stats.shared.balance < 0 ? 'text-rose-600' : 'text-stone-900'
-                  }`}>
-                    {stats.shared.balance.toLocaleString('ru-RU')}
-                    <span className="text-xs font-normal text-stone-400 ml-1">₽</span>
-                  </div>
-                  <div className={`text-xs mt-1.5 truncate ${
-                    stats.shared.balance < 0 ? 'text-rose-600 font-semibold' : 'text-stone-500'
-                  }`}>
-                    {stats.shared.balance < 0 ? '⚠️ Дефицит счета' : 'Подушка / Котел'}
-                  </div>
-                </div>
-
-                <div className="h-7 pt-2 border-t border-stone-100 flex items-center justify-between gap-2 text-xs tabular-nums">
-                  <span className="text-emerald-700 font-semibold truncate">+{stats.shared.monthIncome.toLocaleString('ru-RU')}</span>
-                  <span className="text-rose-600 font-semibold truncate">−{stats.shared.monthExpense.toLocaleString('ru-RU')}</span>
-                </div>
-              </div>
-
-              {/* 4. Безопасный лимит в день / Индикатор кассового разрыва (Доминирующий якорь) */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setIsLimitModalOpen(true)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsLimitModalOpen(true); }}
-                className={`h-[160px] text-white p-4 sm:p-5 rounded-2xl shadow-md flex flex-col justify-between cursor-pointer group transition-all hover:scale-[1.01] ${
-                  stats.hasCashGap
-                    ? 'bg-gradient-to-br from-rose-900 to-stone-900 hover:from-rose-800'
-                    : 'bg-gradient-to-br from-stone-900 to-stone-800 hover:from-stone-800'
-                }`}
-                title="Нажмите для настройки горизонта лимита и дней выплат ЗП"
-              >
-                <div className="h-6 flex items-center justify-between gap-1 text-stone-200">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="text-xs font-semibold text-stone-200 truncate">
-                      {stats.hasCashGap ? 'Кассовый разрыв' : stats.isPastMonth ? 'Итог месяца' : 'Безопасный лимит'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsLimitModalOpen(true);
-                      }}
-                      aria-label="Настроить горизонт лимита и дни зарплаты"
-                      className="w-5 h-5 rounded-md hover:bg-white/10 text-stone-400 group-hover:text-amber-300 flex items-center justify-center transition"
-                    >
-                      <SlidersHorizontal className="w-3 h-3" />
-                    </button>
-                  </div>
-                  {stats.hasCashGap ? (
-                    <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
-                  ) : (
-                    <TrendingUp className="w-4 h-4 text-amber-400 shrink-0" />
-                  )}
-                </div>
-
-                <div className="my-auto">
-                  {stats.hasCashGap ? (
-                    <>
-                      <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-rose-300 tabular-nums leading-none truncate">
-                        −{stats.cashGapAmount.toLocaleString('ru-RU')}
-                        <span className="text-xs font-normal text-rose-300/80 ml-1">₽</span>
-                      </div>
-                      <div className="text-xs text-rose-200 mt-1.5 truncate">
-                        Не хватает на обязательные счета
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-amber-300 tabular-nums leading-none truncate">
-                        {stats.dailyAvailable.toLocaleString('ru-RU')}
-                        <span className="text-xs sm:text-sm font-semibold text-amber-300/80 ml-1">{stats.isPastMonth ? '₽' : '₽/день'}</span>
-                      </div>
-                      <div className="text-xs text-stone-300 mt-1.5 truncate tabular-nums">
-                        {stats.isPastMonth
-                          ? 'Период завершен'
-                          : activeWalletCard === 'shared'
-                          ? `Общий • на ${stats.daysLeft} дн. (${stats.daysHorizonLabel})`
-                          : activeWalletCard === myWalletKey
-                          ? `${myProfile.name} (Мой) • на ${stats.daysLeft} дн. (${stats.daysHorizonLabel})`
-                          : `${partnerProfile.name} • на ${stats.daysLeft} дн. (${stats.daysHorizonLabel})`}
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <div className="h-7 pt-2 border-t border-stone-700/70 text-xs text-stone-300 flex items-center justify-between gap-2 tabular-nums">
-                  {!stats.isPastMonth && stats.reserveToDeduct > 0 ? (
-                    <span className="text-amber-300 font-medium flex items-center gap-1 truncate" title="Резерв на неоплаченные обязательные счета">
-                      <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Резерв: {stats.reserveToDeduct.toLocaleString('ru-RU')} ₽</span>
-                    </span>
-                  ) : (
-                    <span className="text-emerald-400 font-medium flex items-center gap-1 truncate">
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Счета закрыты</span>
-                    </span>
-                  )}
-                  <span className="text-stone-300 font-semibold shrink-0 flex items-center gap-1" title="Отложено в копилки и погашено кредитов">
-                    <Target className="w-3.5 h-3.5 text-stone-300 shrink-0" />
-                    <span>{stats.activeSavedAndDebtPaid.toLocaleString('ru-RU')} ₽</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* МЕМОИЗИРОВАННЫЙ БЛОК SVG-ГРАФИКОВ (фиксированная высота 232px) */}
-            <ChartsSection
-              chartView={chartView}
-              setChartView={setChartView}
-              selectedMonth={selectedMonth}
-              burnDownData={burnDownData}
-              rule503020Data={rule503020Data}
-              dynamics6MonthsData={dynamics6MonthsData}
-              partnerComparisonData={partnerComparisonData}
-              userProfiles={safeProfiles}
-              daysInMonth={stats.daysInMonth}
-              safeLimitConfig={safeLimitConfig}
-            />
-
-            {/* СРЕДНИЙ РЯД (12-колоночная сетка с выравниванием карточек по высоте items-stretch) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-              {/* Левая карточка (7 колонок): Структура расходов */}
-              <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex flex-col justify-between">
-                <div>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 mb-3.5 border-b border-stone-100">
-                    <div>
-                      <h2 className="text-sm font-semibold text-stone-900">
-                        Структура расходов ({activeWalletCard === 'shared' ? 'Семейный резерв' : activeWalletCard === myWalletKey ? `${myProfile.name} ${myProfile.emoji}` : `${partnerProfile.name} ${partnerProfile.emoji}`})
-                      </h2>
-                      <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
-                        Потребительские траты: <strong className="text-stone-800">{stats.totalSelectedExpense.toLocaleString('ru-RU')} ₽</strong>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 self-start sm:self-auto shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('debts')}
-                        className="h-8 px-3 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition inline-flex items-center"
-                      >
-                        План/Прогноз
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          openWalletHistory(activeWalletCard);
-                          setActiveTab('history');
-                        }}
-                        className="h-8 px-3 text-xs font-semibold text-stone-700 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-lg transition inline-flex items-center gap-1"
-                      >
-                        <span>Детали</span>
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {stats.topCategories.length === 0 ? (
-                    <div className="py-12 text-center text-xs text-stone-500 bg-stone-50/60 rounded-xl border border-stone-100">
-                      Нет потребительских расходов по этому счету за выбранный период
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {stats.topCategories.slice(0, 5).map(item => (
-                        <div key={item.name} className="p-2.5 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-1.5">
-                          <div className="flex items-center justify-between gap-2 text-xs">
-                            <span className="flex items-center gap-2 font-semibold text-stone-800 min-w-0">
-                              <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs shrink-0 ${item.meta.color}`}>
-                                {item.meta.icon}
-                              </span>
-                              <span className="truncate">{item.name}</span>
-                              {item.isNewInMonth ? (
-                                <span className="h-5 px-1.5 rounded-md bg-amber-50 text-amber-800 text-[10px] font-semibold inline-flex items-center shrink-0">
-                                  Новая
-                                </span>
-                              ) : item.diff !== 0 ? (
-                                <span className={`h-5 px-1.5 rounded-md text-[10px] font-semibold inline-flex items-center shrink-0 tabular-nums ${
-                                  item.diff > 0
-                                    ? 'bg-rose-50 text-rose-700'
-                                    : 'bg-emerald-50 text-emerald-700'
-                                }`}>
-                                  {item.diff > 0 ? `+${item.diff.toLocaleString('ru-RU')} ₽` : `−${Math.abs(item.diff).toLocaleString('ru-RU')} ₽`}
-                                </span>
-                              ) : null}
-                            </span>
-                            <span className="text-stone-900 font-bold shrink-0 tabular-nums">
-                              {item.sum.toLocaleString('ru-RU')} ₽ <span className="text-stone-500 font-normal">({item.percent}%)</span>
-                            </span>
-                          </div>
-                          <div className="w-full bg-stone-200/80 h-2 rounded-full overflow-hidden">
-                            <div
-                              className="bg-stone-900 h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.max(4, item.percent)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Единый нижний подвал левой карточки */}
-                <div className="pt-3 mt-4 border-t border-stone-100 flex items-center justify-between text-xs tabular-nums">
-                  <span className="text-stone-600 font-medium">Плановый ориентир месяца:</span>
-                  <span className="font-bold text-stone-900">
-                    {expenseForecastData.totalPlannedBudget.toLocaleString('ru-RU')} ₽
-                  </span>
-                </div>
-              </div>
-
-              {/* Правая карточка (5 колонок): Участие в общем котле и дисциплина счетов */}
-              <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between pb-3.5 mb-3.5 border-b border-stone-100">
-                    <div>
-                      <h2 className="text-sm font-semibold text-stone-900">Участие в общем котле</h2>
-                      <p className="text-xs text-stone-500 mt-0.5">
-                        Баланс вклада супругов и обязательных счетов
-                      </p>
-                    </div>
-                    <span className="w-8 h-8 rounded-xl bg-stone-100 text-stone-600 flex items-center justify-center shrink-0">
-                      <User className="w-4 h-4" />
-                    </span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {/* Блок 1: Вклад в доходы котла */}
-                    {(() => {
-                      const totalInc = stats.shared.monthIncome;
-                      const hIncPct = totalInc > 0 ? Math.round((stats.shared.husbandIncome / totalInc) * 100) : 50;
-                      const wIncPct = totalInc > 0 ? 100 - hIncPct : 50;
-                      return (
-                        <div className="p-3 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-2 tabular-nums">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-semibold text-stone-800 flex items-center gap-1.5">
-                              <span>💰</span> Вклад в доходы котла
-                            </span>
-                            <span className="font-bold text-stone-900">
-                              {totalInc.toLocaleString('ru-RU')} ₽
-                            </span>
-                          </div>
-                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden flex">
-                            <div
-                              className="bg-emerald-600 h-full transition-all duration-500"
-                              style={{ width: `${hIncPct}%` }}
-                            />
-                            <div
-                              className="bg-teal-400 h-full transition-all duration-500"
-                              style={{ width: `${wIncPct}%` }}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-stone-600">
-                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandIncome.toLocaleString('ru-RU')} ₽ ({totalInc > 0 ? hIncPct : 0}%)</span>
-                            <span>👩🏼 Жена: {stats.shared.wifeIncome.toLocaleString('ru-RU')} ₽ ({totalInc > 0 ? wIncPct : 0}%)</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Блок 2: Оплата общих покупок */}
-                    {(() => {
-                      const totalExp = stats.shared.consumerExpense;
-                      const hExpPct = totalExp > 0 ? Math.round((stats.shared.husbandConsumerSpent / totalExp) * 100) : 50;
-                      const wExpPct = totalExp > 0 ? 100 - hExpPct : 50;
-                      return (
-                        <div className="p-3 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-2 tabular-nums">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-semibold text-stone-800 flex items-center gap-1.5">
-                              <span>🛒</span> Оплата общих покупок
-                            </span>
-                            <span className="font-bold text-stone-900">
-                              {totalExp.toLocaleString('ru-RU')} ₽
-                            </span>
-                          </div>
-                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden flex">
-                            <div
-                              className="bg-stone-900 h-full transition-all duration-500"
-                              style={{ width: `${hExpPct}%` }}
-                            />
-                            <div
-                              className="bg-stone-400 h-full transition-all duration-500"
-                              style={{ width: `${wExpPct}%` }}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-stone-600">
-                            <span>🧔🏻‍♂️ Муж: {stats.shared.husbandConsumerSpent.toLocaleString('ru-RU')} ₽ ({totalExp > 0 ? hExpPct : 0}%)</span>
-                            <span>👩🏼 Жена: {stats.shared.wifeConsumerSpent.toLocaleString('ru-RU')} ₽ ({totalExp > 0 ? wExpPct : 0}%)</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Блок 3: Исполнение обязательных счетов месяца (уравновешивает высоту правой карточки) */}
-                    {(() => {
-                      const targetYm = selectedMonth === 'all' ? getCurrentMonthPrefix() : selectedMonth;
-                      const mandatoryList = recurringPayments.filter(r => r.isMandatory !== false);
-                      const totalBills = mandatoryList.length;
-                      const paidBills = mandatoryList.filter(r => (r.paidMonths || []).includes(targetYm)).length;
-                      const billsPct = totalBills > 0 ? Math.round((paidBills / totalBills) * 100) : 100;
-                      return (
-                        <div className="p-3 rounded-xl bg-stone-50/70 border border-stone-200/60 space-y-2 tabular-nums">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-semibold text-stone-800 flex items-center gap-1.5">
-                              <span>🛡️</span> Обязательные счета месяца
-                            </span>
-                            <span className="font-bold text-stone-900">
-                              {paidBills} из {totalBills} оплачено
-                            </span>
-                          </div>
-                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${
-                                billsPct === 100 ? 'bg-emerald-600' : 'bg-amber-500'
-                              }`}
-                              style={{ width: `${billsPct}%` }}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-stone-600">
-                            <span>Осталось к оплате: {stats.unpaidMandatoryThisMonth.toLocaleString('ru-RU')} ₽</span>
-                            <span>{billsPct}% выполнено</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {/* Единый нижний подвал правой карточки */}
-                <div className="pt-3 mt-4 border-t border-stone-100 flex items-center justify-between text-xs tabular-nums">
-                  <span className="text-stone-600 flex items-center gap-1.5 font-medium">
-                    <span className="w-2 h-2 rounded-full bg-violet-600"></span>
-                    <span>Отложено и погашено из котла:</span>
-                  </span>
-                  <span className="font-bold text-violet-700">
-                    {stats.shared.savedAndDebtPaid.toLocaleString('ru-RU')} ₽
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* ПОСЛЕДНИЕ ОПЕРАЦИИ */}
-            <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 mb-2 border-b border-stone-100">
-                <div>
-                  <h2 className="text-sm font-semibold text-stone-900">Последние операции</h2>
-                  <p className="text-xs text-stone-500 mt-0.5">Нажмите на запись для редактирования или внесите пачку чеков за прошлую дату</p>
-                </div>
-                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => openNewTransactionModal(null, null, null, true)}
-                    className="h-9 px-3 rounded-xl bg-amber-100/90 hover:bg-amber-200/80 text-stone-900 text-xs font-semibold transition inline-flex items-center gap-1.5"
-                  >
-                    <Calendar className="w-3.5 h-3.5 shrink-0" />
-                    <span>Внести чеки за дату</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('history')}
-                    className="h-9 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-900 text-xs font-semibold transition inline-flex items-center tabular-nums"
-                  >
-                    Все ({periodTransactions.length})
-                  </button>
-                </div>
-              </div>
-
-              {periodTransactions.length === 0 ? (
-                <div className="py-10 text-center text-xs text-stone-500">
-                  В этом месяце операций пока нет
-                </div>
-              ) : (
-                <div className="divide-y divide-stone-100">
-                  {periodTransactions.slice(0, 6).map(tx => renderTransactionRow(tx))}
-                </div>
-              )}
-            </div>
-          </div>
+          <DashboardTab
+            reminderSummary={reminderSummary}
+            openPayRecurringModal={openPayRecurringModal}
+            setActiveTab={setActiveTab}
+            myWalletKey={myWalletKey}
+            partnerWalletKey={partnerWalletKey}
+            myProfile={myProfile}
+            partnerProfile={partnerProfile}
+            myWalletStats={myWalletStats}
+            partnerWalletStats={partnerWalletStats}
+            activeWalletCard={activeWalletCard}
+            setActiveWalletCard={setActiveWalletCard}
+            stats={stats}
+            setIsLimitModalOpen={setIsLimitModalOpen}
+            chartView={chartView}
+            setChartView={setChartView}
+            selectedMonth={selectedMonth}
+            burnDownData={burnDownData}
+            rule503020Data={rule503020Data}
+            dynamics6MonthsData={dynamics6MonthsData}
+            partnerComparisonData={partnerComparisonData}
+            safeProfiles={safeProfiles}
+            safeLimitConfig={safeLimitConfig}
+            expenseForecastData={expenseForecastData}
+            openWalletHistory={openWalletHistory}
+            recurringPayments={recurringPayments}
+            openNewTransactionModal={openNewTransactionModal}
+            periodTransactions={periodTransactions}
+            customCategories={customCategories}
+            openEditTransactionModal={openEditTransactionModal}
+            handleDeleteTransaction={handleDeleteTransaction}
+          />
         )}
 
-        {/* ================= ВКЛАДКА 2: ОПЕРАЦИИ И КАЛЕНДАРЬ ЧЕКОВ ================= */}
         {activeTab === 'history' && (
-          <div className="space-y-4 animate-fade-in">
-            <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-4 space-y-3">
-              {/* Панель поиска и кнопок строго единой высоты h-10 */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative flex-1 min-w-[200px]">
-                  <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Поиск по названию или категории..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    aria-label="Поиск по операциям"
-                    className="w-full h-10 text-xs font-medium pl-9 pr-8 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900 text-stone-900"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      aria-label="Сбросить поиск"
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-stone-500 hover:text-stone-800"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsCalendarExpanded(!isCalendarExpanded)}
-                  className={`h-10 px-3.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition shrink-0 tabular-nums ${
-                    isCalendarExpanded || selectedCalendarDate
-                      ? 'bg-amber-100 text-amber-950 border-amber-300'
-                      : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5 shrink-0" />
-                  <span>{selectedCalendarDate ? `День: ${selectedCalendarDate.slice(8, 10)}.${selectedCalendarDate.slice(5, 7)}` : 'Календарь чеков'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsFilterOpen(!isFilterOpen)}
-                  aria-expanded={isFilterOpen}
-                  aria-label="Открыть фильтры операций"
-                  className={`h-10 px-3.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition shrink-0 ${
-                    hasActiveFilters
-                      ? 'bg-stone-900 text-white border-stone-900'
-                      : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
-                  }`}
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Фильтры</span>
-                  {activeFilterCount > 0 && (
-                    <span className="w-5 h-5 rounded-md bg-amber-400 text-stone-950 font-bold text-[10px] inline-flex items-center justify-center tabular-nums">
-                      {activeFilterCount}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* ИНТЕРАКТИВНЫЙ КАЛЕНДАРЬ ЧЕКОВ ПО ДНЯМ МЕСЯЦА */}
-              {isCalendarExpanded && (
-                <ReceiptCalendar
-                  monthCalendarDays={monthCalendarDays}
-                  selectedCalendarDate={selectedCalendarDate}
-                  setSelectedCalendarDate={setSelectedCalendarDate}
-                  onAddReceiptsForDate={(dateStr) => openNewTransactionModal(null, null, dateStr, true)}
-                />
-              )}
-
-              {/* Выпадающая панель фильтров (3 колонки на десктопе) */}
-              {isFilterOpen && (
-                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200/80 grid grid-cols-1 sm:grid-cols-3 gap-3 animate-fade-in text-xs">
-                  <div>
-                    <label className="text-xs font-semibold text-stone-600 block mb-1.5">Кто записал:</label>
-                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
-                      {[
-                        { id: 'all', label: 'Все' },
-                        { id: 'husband', label: `${safeProfiles.husband?.emoji || '🧔🏻‍♂️'} ${safeProfiles.husband?.name || 'Партнер 1'}` },
-                        { id: 'wife', label: `${safeProfiles.wife?.emoji || '👩🏼'} ${safeProfiles.wife?.name || 'Партнер 2'}` },
-                      ].map(opt => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => setFilterAuthor(opt.id)}
-                          className={`h-7 px-2 rounded-md font-medium transition flex items-center justify-center truncate ${
-                            filterAuthor === opt.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-stone-600 block mb-1.5">Тип операции:</label>
-                    <div className="grid grid-cols-4 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
-                      {[
-                        { id: 'all', label: 'Все' },
-                        { id: 'expense', label: 'Расходы' },
-                        { id: 'income', label: 'Доходы' },
-                        { id: 'transfer', label: '⇄ Переводы' },
-                      ].map(opt => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => setFilterType(opt.id)}
-                          className={`h-7 px-2 rounded-md font-medium transition flex items-center justify-center truncate ${
-                            filterType === opt.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-stone-600 block mb-1.5">Счет:</label>
-                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-stone-200/80">
-                      {[
-                        { id: 'all', label: 'Все' },
-                        { id: 'shared', label: '👥 Общий' },
-                        { id: 'personal', label: '👤 Личный' },
-                      ].map(opt => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => setFilterAccount(opt.id)}
-                          className={`h-7 px-2 rounded-md font-medium transition flex items-center justify-center truncate ${
-                            filterAccount === opt.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between text-xs text-stone-600 font-medium flex-wrap gap-2 pt-1">
-                <span className="tabular-nums">
-                  Найдено: <strong className="text-stone-900">{filteredTransactions.length}</strong> из {periodTransactions.length}
-                  {selectedCalendarDate && (
-                    <span className="ml-2 text-amber-800 font-semibold">
-                      • Фильтр по дате: {selectedCalendarDate}
-                    </span>
-                  )}
-                </span>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => openNewTransactionModal(null, null, selectedCalendarDate || getTargetDateForMonth(selectedMonth), true)}
-                    className="text-stone-800 font-semibold hover:text-stone-950 underline"
-                  >
-                    + Внести пачку чеков за дату
-                  </button>
-                  {selectedMonth !== 'all' && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMonth('all')}
-                      className="text-stone-600 hover:text-stone-900 underline"
-                    >
-                      Показать за всё время
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {groupedTransactions.length === 0 ? (
-              <div className="py-12 text-center bg-white rounded-2xl border border-stone-200/80 p-8 shadow-sm">
-                <div className="text-3xl mb-2">🧾</div>
-                <div className="text-sm font-semibold text-stone-800">
-                  {selectedCalendarDate ? `За ${selectedCalendarDate} операций пока нет` : 'Операций не найдено'}
-                </div>
-                <p className="text-xs text-stone-500 mt-1">
-                  {selectedCalendarDate
-                    ? 'Вы можете сразу добавить один или несколько чеков за этот день'
-                    : 'Попробуйте изменить запрос или сбросить фильтры'}
-                </p>
-                <div className="mt-4 flex items-center justify-center gap-2">
-                  {selectedCalendarDate && (
-                    <button
-                      type="button"
-                      onClick={() => openNewTransactionModal(null, null, selectedCalendarDate, true)}
-                      className="h-9 px-4 rounded-xl bg-stone-900 text-white text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center"
-                    >
-                      + Добавить чеки за {selectedCalendarDate}
-                    </button>
-                  )}
-                  {hasActiveFilters && (
-                    <button
-                      type="button"
-                      onClick={clearFilters}
-                      className="h-9 px-4 rounded-xl bg-stone-100 text-stone-800 text-xs font-semibold hover:bg-stone-200 transition inline-flex items-center"
-                    >
-                      Сбросить фильтры
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {groupedTransactions.map(group => (
-                  <div key={group.date} className="bg-white rounded-2xl border border-stone-200/80 p-3 sm:p-4 shadow-sm">
-                    <div className="h-9 flex items-center justify-between px-3 bg-stone-50 rounded-xl text-xs font-semibold text-stone-700 mb-2 gap-2">
-                      <span className="truncate">{group.label}</span>
-                      <div className="flex items-center gap-3 shrink-0 tabular-nums">
-                        <button
-                          type="button"
-                          onClick={() => openNewTransactionModal(null, null, group.date, false)}
-                          className="h-6 px-2.5 text-[11px] font-semibold text-stone-700 hover:text-stone-950 bg-white rounded-lg border border-stone-200/80 hover:border-stone-400 transition inline-flex items-center"
-                          title={`Добавить ещё чек за ${group.date}`}
-                        >
-                          + Чек сюда
-                        </button>
-                        <span className={`min-w-[84px] text-right font-bold ${group.net >= 0 ? 'text-emerald-700' : 'text-stone-800'}`}>
-                          {group.net >= 0 ? '+' : '−'}{Math.abs(group.net).toLocaleString('ru-RU')} ₽
-                        </span>
-                      </div>
-                    </div>
-                    <div className="divide-y divide-stone-100">
-                      {group.items.map(tx => renderTransactionRow(tx))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <HistoryTab
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            isCalendarExpanded={isCalendarExpanded}
+            setIsCalendarExpanded={setIsCalendarExpanded}
+            selectedCalendarDate={selectedCalendarDate}
+            setSelectedCalendarDate={setSelectedCalendarDate}
+            isFilterOpen={isFilterOpen}
+            setIsFilterOpen={setIsFilterOpen}
+            hasActiveFilters={hasActiveFilters}
+            activeFilterCount={activeFilterCount}
+            monthCalendarDays={monthCalendarDays}
+            openNewTransactionModal={openNewTransactionModal}
+            filterAuthor={filterAuthor}
+            setFilterAuthor={setFilterAuthor}
+            filterType={filterType}
+            setFilterType={setFilterType}
+            filterAccount={filterAccount}
+            setFilterAccount={setFilterAccount}
+            safeProfiles={safeProfiles}
+            filteredTransactions={filteredTransactions}
+            periodTransactions={periodTransactions}
+            selectedMonth={selectedMonth}
+            setSelectedMonth={setSelectedMonth}
+            groupedTransactions={groupedTransactions}
+            clearFilters={clearFilters}
+            customCategories={customCategories}
+            openEditTransactionModal={openEditTransactionModal}
+            handleDeleteTransaction={handleDeleteTransaction}
+          />
         )}
 
-        {/* ================= ВКЛАДКА 3: СЕМЕЙНЫЕ КОПИЛКИ ================= */}
         {activeTab === 'goals' && (
-          <div className="space-y-4 animate-fade-in">
-            <div className="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-base font-semibold tracking-tight text-stone-900 flex items-center gap-2">
-                  <span>🎯</span> Семейные копилки и цели
-                </h2>
-                <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
-                  Общий прогресс: <strong className="text-stone-800">{stats.totalSavings.toLocaleString('ru-RU')} ₽</strong> из {stats.totalTargetSavings.toLocaleString('ru-RU')} ₽ • Нажмите на карточку для пополнения или вывода
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingGoalId(null);
-                  setNewGoalTitle('');
-                  setNewGoalTarget('');
-                  setNewGoalCurrent('0');
-                  setIsNewGoalModalOpen(true);
-                }}
-                className="h-10 px-4 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 shadow-sm self-start sm:self-auto shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Новая цель</span>
-              </button>
-            </div>
-
-            {goals.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-stone-200/80 p-10 text-center shadow-sm">
-                <div className="text-3xl mb-2">🎯</div>
-                <div className="text-sm font-semibold text-stone-800">Нет активных целей-копилок</div>
-                <p className="text-xs text-stone-500 mt-1 max-w-sm mx-auto">
-                  Создайте цель накопления на отпуск, подушку безопасности или крупную покупку
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setIsNewGoalModalOpen(true)}
-                  className="mt-4 h-9 px-4 bg-stone-900 text-white rounded-xl text-xs font-semibold hover:bg-stone-800 transition inline-flex items-center gap-1.5 shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Создать первую цель</span>
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
-                {goals.map(goal => {
-                  const percent = goal.target > 0 ? Math.min(100, Math.max(0, Math.round((goal.current / goal.target) * 100))) : 0;
-                  const remaining = Math.max(0, (Number(goal.target) || 0) - (Number(goal.current) || 0));
-                  return (
-                    <div
-                      key={goal.id}
-                      onClick={() => {
-                        setSelectedGoalId(goal.id);
-                        setGoalActionMode('contribute');
-                        setGoalSourceAccount('shared');
-                        setGoalActionDate(getTargetDateForMonth(selectedMonth));
-                        setIsGoalModalOpen(true);
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setSelectedGoalId(goal.id);
-                          setGoalActionMode('contribute');
-                          setIsGoalModalOpen(true);
-                        }
-                      }}
-                      className="min-h-[196px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm hover:shadow-md hover:border-stone-300 transition-all cursor-pointer relative overflow-hidden group text-left flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="w-10 h-10 rounded-xl bg-stone-50 border border-stone-200/70 flex items-center justify-center text-xl shrink-0">
-                            {goal.icon}
-                          </span>
-                          <div className="flex items-center gap-1">
-                            <span className="h-7 px-2.5 rounded-lg bg-stone-100 text-stone-800 text-xs font-bold inline-flex items-center tabular-nums">
-                              {percent}%
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => openEditGoalModal(e, goal)}
-                              aria-label={`Редактировать цель ${goal.title}`}
-                              className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition"
-                              title="Изменить цель"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => handleDeleteGoal(e, goal.id)}
-                              aria-label={`Удалить цель ${goal.title}`}
-                              className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                              title="Удалить цель"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="font-semibold text-stone-900 text-sm mb-1 flex items-center justify-between gap-2">
-                          <span className="truncate">{goal.title}</span>
-                          <span className="text-xs font-semibold text-violet-700 shrink-0">
-                            ± Операция
-                          </span>
-                        </div>
-
-                        <div className="text-xs text-stone-600 font-medium tabular-nums">
-                          {Number(goal.current).toLocaleString('ru-RU')} ₽ из {Number(goal.target).toLocaleString('ru-RU')} ₽
-                        </div>
-                      </div>
-
-                      <div className="pt-3 mt-3 border-t border-stone-100">
-                        <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden mb-2">
-                          <div
-                            className={`h-full rounded-full bg-gradient-to-r ${goal.color} transition-all duration-500`}
-                            style={{ width: `${percent}%` }}
-                          />
-                        </div>
-                        <div className="text-xs text-stone-500 flex items-center justify-between tabular-nums">
-                          <span>{remaining > 0 ? `Осталось: ${remaining.toLocaleString('ru-RU')} ₽` : 'Цель достигнута! 🎉'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <GoalsTab
+            goals={goals}
+            stats={stats}
+            selectedMonth={selectedMonth}
+            setEditingGoalId={setEditingGoalId}
+            setNewGoalTitle={setNewGoalTitle}
+            setNewGoalTarget={setNewGoalTarget}
+            setNewGoalCurrent={setNewGoalCurrent}
+            setIsNewGoalModalOpen={setIsNewGoalModalOpen}
+            setSelectedGoalId={setSelectedGoalId}
+            setGoalActionMode={setGoalActionMode}
+            setGoalSourceAccount={setGoalSourceAccount}
+            setGoalActionDate={setGoalActionDate}
+            setIsGoalModalOpen={setIsGoalModalOpen}
+            openEditGoalModal={openEditGoalModal}
+            handleDeleteGoal={handleDeleteGoal}
+          />
         )}
 
-        {/* ================= ВКЛАДКА 4: ПЛАТЕЖИ, НАПОМИНАЛКА И ПЛАНИРОВЩИК ================= */}
         {activeTab === 'debts' && (
-          <div className="space-y-5 animate-fade-in">
-            {/* 3 карточки сводки фиксированной высоты h-[120px] */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch">
-              <div className="h-[120px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-xs font-medium text-stone-500 block truncate">Неоплаченные обязательные счета</span>
-                  <div className="text-xl sm:text-2xl font-bold text-stone-900 tabular-nums mt-1 truncate">
-                    {stats.unpaidMandatoryThisMonth.toLocaleString('ru-RU')} ₽
-                  </div>
-                  <div className="text-xs text-stone-600 mt-1 truncate">
-                    {pendingBillsCount > 0
-                      ? `Ожидают оплаты: ${pendingBillsCount} шт.`
-                      : '✓ Все обязательные счета оплачены'}
-                  </div>
-                </div>
-                <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
-                  <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0" />
-                </div>
-              </div>
-
-              <div className="h-[120px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-xs font-medium text-stone-500 block truncate">Планируемые расходы месяца</span>
-                  <div className="text-xl sm:text-2xl font-bold text-emerald-800 tabular-nums mt-1 truncate">
-                    {expenseForecastData.totalPlannedBudget.toLocaleString('ru-RU')} ₽
-                  </div>
-                  <div className="text-xs text-stone-600 mt-1 truncate tabular-nums">
-                    Факт: {expenseForecastData.totalCurrentActual.toLocaleString('ru-RU')} ₽ ({expenseForecastData.pastMonthsCount} мес. базы)
-                  </div>
-                </div>
-                <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-                  <BarChart3 className="w-5 h-5 text-emerald-700 shrink-0" />
-                </div>
-              </div>
-
-              <div className="h-[120px] bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-xs font-medium text-stone-500 block truncate">Остаток по долгам и кредитам</span>
-                  <div className="text-xl sm:text-2xl font-bold text-rose-600 tabular-nums mt-1 truncate">
-                    {stats.totalDebtRemaining.toLocaleString('ru-RU')} ₽
-                  </div>
-                  <div className="text-xs text-stone-600 mt-1 truncate tabular-nums">
-                    Погашено {Math.max(0, stats.totalDebtInitial - stats.totalDebtRemaining).toLocaleString('ru-RU')} ₽ из {stats.totalDebtInitial.toLocaleString('ru-RU')} ₽
-                  </div>
-                </div>
-                <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center shrink-0">
-                  <CreditCard className="w-5 h-5 text-rose-600 shrink-0" />
-                </div>
-              </div>
-            </div>
-
-            {/* РАЗДЕЛ 1: СПИСОК ПОСТОЯННЫХ ОБЯЗАТЕЛЬНЫХ РАСХОДОВ (выровненные колонки сумм и кнопок) */}
-            <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-100">
-                <div>
-                  <h2 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Постоянные обязательные расходы и напоминалка</span>
-                  </h2>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    Мобильная связь, интернет, ЖКУ, аренда, секции — контролируйте сроки оплаты и резерв бюджета на месяц
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingRecurringId(null);
-                    setNewRecTitle('');
-                    setNewRecAmount('');
-                    setNewRecCategory('Связь и интернет');
-                    setNewRecDueDate('20');
-                    setNewRecAccount('shared');
-                    setNewRecMandatory(true);
-                    setIsNewRecurringModalOpen(true);
-                  }}
-                  className="h-9 px-3.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 self-start sm:self-auto shadow-sm shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Добавить постоянный расход</span>
-                </button>
-              </div>
-
-              {recurringPayments.length === 0 ? (
-                <div className="py-8 text-center text-xs text-stone-500">
-                  Список постоянных расходов пуст. Добавьте связь, интернет или ЖКУ для автоматических напоминаний.
-                </div>
-              ) : (
-                <div className="divide-y divide-stone-100">
-                  {[...recurringPayments]
-                    .sort((a, b) => (Number(a.dueDate) || 1) - (Number(b.dueDate) || 1))
-                    .map(rec => {
-                      const targetYm = selectedMonth === 'all' ? getCurrentMonthPrefix() : selectedMonth;
-                      const st = getRecurringReminderStatus(rec, targetYm);
-                      const isPaid = st.code === 'paid';
-                      const catMeta = getCategoryMeta(rec.category, 'expense', customCategories);
-                      return (
-                        <div key={rec.id} className="py-3 px-2 sm:px-3 hover:bg-stone-50/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition border border-transparent hover:border-stone-200/60">
-                          {/* Верхняя строка на мобильных / Левая колонка на десктопе */}
-                          <div className="flex items-start sm:items-center gap-3 min-w-0 w-full sm:flex-1">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-base shrink-0 mt-0.5 sm:mt-0 ${
-                              isPaid ? 'bg-emerald-50 text-emerald-700' : st.code === 'overdue' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
-                            }`}>
-                              {isPaid ? <CheckCircle2 className="w-5 h-5" /> : <span>{catMeta.icon}</span>}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-semibold text-stone-900 flex items-center gap-2 flex-wrap">
-                                <span className="truncate">{rec.title}</span>
-                                <span className={`h-5 px-2 rounded-md text-[11px] font-medium border inline-flex items-center shrink-0 ${st.badgeClass}`}>
-                                  {st.label}
-                                </span>
-                                {rec.isMandatory === false && (
-                                  <span className="h-5 px-1.5 rounded-md bg-stone-100 text-stone-600 text-[11px] font-medium inline-flex items-center shrink-0">
-                                    Необязательный
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xs text-stone-500 mt-1 flex items-center gap-1.5 flex-wrap">
-                                <span className="font-medium text-stone-600">{rec.category}</span>
-                                <span className="text-stone-300">•</span>
-                                <span className="inline-flex items-center gap-1">
-                                  {(rec.account || 'shared') === 'shared'
-                                    ? <>
-                                        <Users className="w-3 h-3 text-stone-400 shrink-0" />
-                                        <span>Общий котел</span>
-                                      </>
-                                    : rec.author === 'wife'
-                                    ? <span>{safeProfiles.wife?.emoji || '👩🏼'} {safeProfiles.wife?.name || 'Партнер 2'}</span>
-                                    : <span>{safeProfiles.husband?.emoji || '🧔🏻‍♂️'} {safeProfiles.husband?.name || 'Партнер 1'}</span>}
-                                </span>
-                                <span className="text-stone-300">•</span>
-                                <span className="tabular-nums">До {rec.dueDate}-го числа</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Нижняя строка на мобильных (с разделителем) / Правая колонка на десктопе */}
-                          <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100 ml-0 sm:ml-auto">
-                            <div className="text-left sm:text-right tabular-nums shrink-0">
-                              <div className="text-sm sm:text-base font-bold text-stone-900 leading-tight">
-                                {Number(rec.amount).toLocaleString('ru-RU')} ₽
-                              </div>
-                              <div className="text-[11px] text-stone-500">
-                                план в мес.
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {isPaid ? (
-                                <span className="w-[100px] sm:w-[104px] h-8 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200 inline-flex items-center justify-center shrink-0">
-                                  ✓ Оплачено
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => openPayRecurringModal(rec)}
-                                  className="w-[100px] sm:w-[104px] h-8 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold transition shadow-sm inline-flex items-center justify-center shrink-0"
-                                >
-                                  Оплатить
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={(e) => openEditRecurringModal(e, rec)}
-                                aria-label={`Изменить платеж ${rec.title}`}
-                                className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition shrink-0"
-                                title="Редактировать"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeleteRecurring(e, rec.id)}
-                                aria-label={`Удалить платеж ${rec.title}`}
-                                className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition shrink-0"
-                                title="Удалить"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-
-            {/* РАЗДЕЛ 2: ПЛАНИРУЕМЫЕ И ПРЕДПОЛОЖИТЕЛЬНЫЕ РАСХОДЫ */}
-            <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-100">
-                <div>
-                  <h2 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span>Планируемые и предположительные расходы (по анализу прошлых месяцев)</span>
-                  </h2>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    Автоматический расчет ожидаемых трат по категориям на базе прошлых месяцев ({expenseForecastData.pastMonthsCount} мес. в базе) + постоянных счетов.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleApplyAutoForecastLimits}
-                  className="h-9 px-3.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                  <span>Заполнить план из прошлых месяцев</span>
-                </button>
-              </div>
-
-              {expenseForecastData.rows.length === 0 ? (
-                <div className="py-8 text-center text-xs text-stone-500">
-                  Пока недостаточно данных для прогноза по этому кошельку
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {expenseForecastData.rows.map(row => {
-                    const isEditingThis = editingPlanCategory === row.category;
-                    return (
-                      <div key={row.category} className="p-3.5 rounded-xl bg-stone-50/70 border border-stone-200/70 space-y-2">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm shrink-0 ${row.meta.color}`}>
-                              {row.meta.icon}
-                            </span>
-                            <div className="min-w-0">
-                              <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5 flex-wrap">
-                                <span>{row.category}</span>
-                                <span className="h-5 px-2 rounded-md bg-white border border-stone-200 text-[10px] font-medium text-stone-600 inline-flex items-center tabular-nums">
-                                  Среднее: {row.avgHistorical.toLocaleString('ru-RU')} ₽
-                                </span>
-                                {row.recSum > 0 && (
-                                  <span className="h-5 px-2 rounded-md bg-blue-50 text-blue-700 text-[10px] font-medium inline-flex items-center tabular-nums">
-                                    Постоянные счета: {row.recSum.toLocaleString('ru-RU')} ₽
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xs text-stone-500 mt-0.5 tabular-nums">
-                                {row.isOverPlan
-                                  ? `⚠️ Превышение планового бюджета на ${(row.currentActual - row.effectivePlan).toLocaleString('ru-RU')} ₽`
-                                  : `Свободно по плану категории: ${row.remainingPlan.toLocaleString('ru-RU')} ₽`}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                            {isEditingThis ? (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="500"
-                                  value={editingPlanValue}
-                                  onChange={(e) => setEditingPlanValue(e.target.value)}
-                                  placeholder={String(row.autoSuggested)}
-                                  className="w-28 h-8 text-xs font-bold px-2.5 bg-white border border-stone-300 rounded-lg focus:outline-none tabular-nums"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveCategoryLimit(row.category)}
-                                  className="w-8 h-8 bg-stone-900 text-white rounded-lg hover:bg-stone-800 flex items-center justify-center"
-                                  title="Сохранить план"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingPlanCategory(null)}
-                                  className="w-8 h-8 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 flex items-center justify-center"
-                                  title="Отмена"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="text-right flex items-center gap-2.5 tabular-nums">
-                                <div>
-                                  <div className="text-xs font-bold text-stone-900">
-                                    Факт: {row.currentActual.toLocaleString('ru-RU')} ₽{' '}
-                                    <span className="text-stone-500 font-normal">/ План: {row.effectivePlan.toLocaleString('ru-RU')} ₽</span>
-                                  </div>
-                                  <div className="text-[10px] text-stone-500">
-                                    {row.userCustomLimit !== undefined ? 'Ручной план' : 'Авто-прогноз'} ({row.pctUsed}%)
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingPlanCategory(row.category);
-                                    setEditingPlanValue(String(row.effectivePlan));
-                                  }}
-                                  className="w-8 h-8 flex items-center justify-center text-stone-500 hover:text-stone-900 bg-white border border-stone-200 rounded-lg hover:border-stone-400 transition"
-                                  title="Изменить плановый бюджет категории"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              row.isOverPlan ? 'bg-rose-500' : row.pctUsed >= 85 ? 'bg-amber-500' : 'bg-emerald-600'
-                            }`}
-                            style={{ width: `${Math.min(100, row.pctUsed)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* РАЗДЕЛ 3: ДОЛГИ И КРЕДИТЫ (Обратные копилки) */}
-            <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-100">
-                <div>
-                  <h2 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
-                    <span>💳</span>
-                    <span>Долги и кредиты (Обратные копилки)</span>
-                  </h2>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    Прогресс выплаты, ежемесячные платежи и точный прогноз даты полного закрытия
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingDebtId(null);
-                    setNewDebtTitle('');
-                    setNewDebtInitial('');
-                    setNewDebtRemaining('');
-                    setNewDebtPayment('');
-                    setIsNewDebtModalOpen(true);
-                  }}
-                  className="h-9 px-3.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-xl transition inline-flex items-center gap-1.5 self-start sm:self-auto shadow-sm shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Добавить кредит</span>
-                </button>
-              </div>
-
-              {debts.length === 0 ? (
-                <div className="py-8 text-center">
-                  <div className="text-3xl mb-2">🎉</div>
-                  <div className="text-sm font-semibold text-stone-800">Долгов и кредитов нет</div>
-                  <p className="text-xs text-stone-500 mt-1">
-                    При необходимости вы можете добавить рассрочку, ипотеку или кредит
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-                  {debts.map(debt => {
-                    const init = Math.max(1, Number(debt.initialAmount) || 1);
-                    const rem = Math.max(0, Number(debt.remainingAmount) || 0);
-                    const paid = Math.max(0, init - rem);
-                    const percent = Math.min(100, Math.max(0, Math.round((paid / init) * 100)));
-                    const monthly = Math.max(1, Number(debt.monthlyPayment) || 1);
-                    const monthsLeft = rem > 0 ? Math.ceil(rem / monthly) : 0;
-
-                    const targetYm = selectedMonth === 'all' ? getCurrentMonthPrefix() : selectedMonth;
-                    const isPaidThisMonth = (debt.paidMonths || []).includes(targetYm);
-
-                    const now = new Date();
-                    const offsetMonths = Math.max(0, monthsLeft - (isPaidThisMonth ? 0 : 1));
-                    const closeDate = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
-                    const forecastText = debt.isRegular === false && monthly <= 0
-                      ? 'По мере возможности'
-                      : monthsLeft > 0
-                      ? `${monthsLeft} пл. (${MONTH_NAMES_NOMINATIVE[closeDate.getMonth()]} ${closeDate.getFullYear()})`
-                      : 'Полностью закрыт! 🎉';
-
-                    return (
-                      <div
-                        key={debt.id}
-                        className="min-h-[212px] bg-stone-50/60 p-4 rounded-xl border border-stone-200/80 hover:border-stone-300 transition flex flex-col justify-between space-y-3 relative group"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className="w-10 h-10 rounded-xl bg-white border border-stone-200/70 flex items-center justify-center text-xl shrink-0">
-                                {debt.icon}
-                              </span>
-                              <div className="min-w-0">
-                                <h3 className="font-semibold text-stone-900 text-sm leading-tight truncate">{debt.title}</h3>
-                                <span className="text-xs text-stone-500 tabular-nums">
-                                  {debt.isRegular === false
-                                    ? 'Гибкий долг / свободное погашение'
-                                    : `Платёж: ${monthly.toLocaleString('ru-RU')} ₽ до ${debt.paymentDay}-го числа`}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1 shrink-0">
-                              <span className="h-7 px-2.5 rounded-lg bg-white border border-stone-200/80 text-xs font-bold text-stone-700 inline-flex items-center tabular-nums">
-                                {percent}%
-                              </span>
-                              <button
-                                type="button"
-                                onClick={(e) => openEditDebtModal(e, debt)}
-                                aria-label={`Изменить кредит ${debt.title}`}
-                                className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-900 hover:bg-white rounded-lg transition"
-                                title="Редактировать"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeleteDebt(e, debt.id)}
-                                aria-label={`Удалить кредит ${debt.title}`}
-                                className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                                title="Удалить"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="space-y-1 tabular-nums">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-stone-600">Остаток долга:</span>
-                              <span className="font-bold text-rose-600 text-sm">
-                                {rem.toLocaleString('ru-RU')} ₽
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-xs text-stone-500">
-                              <span>Выплачено: {paid.toLocaleString('ru-RU')} ₽</span>
-                              <span>Из: {init.toLocaleString('ru-RU')} ₽</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden mb-2">
-                            <div
-                              className={`h-full rounded-full bg-gradient-to-r ${debt.color} transition-all duration-500`}
-                              style={{ width: `${percent}%` }}
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between text-xs text-stone-600 mb-3 tabular-nums">
-                            <span>Прогноз закрытия:</span>
-                            <span className="font-semibold text-stone-800">{forecastText}</span>
-                          </div>
-
-                          <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-stone-200/70">
-                            <span className={`text-xs font-medium ${isPaidThisMonth ? 'text-emerald-700' : (debt.isRegular === false ? 'text-stone-500' : 'text-amber-800')}`}>
-                              {isPaidThisMonth ? '✓ Платёж за месяц внесен' : (debt.isRegular === false ? 'Свободный график' : 'Платёж за месяц ожидает')}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => openPayDebtModal(debt)}
-                              className="h-8 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold transition shadow-sm inline-flex items-center"
-                            >
-                              Внести платёж
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          <DebtsPlanTab
+            stats={stats}
+            pendingBillsCount={pendingBillsCount}
+            expenseForecastData={expenseForecastData}
+            recurringPayments={recurringPayments}
+            debts={debts}
+            selectedMonth={selectedMonth}
+            customCategories={customCategories}
+            safeProfiles={safeProfiles}
+            setEditingRecurringId={setEditingRecurringId}
+            setNewRecTitle={setNewRecTitle}
+            setNewRecAmount={setNewRecAmount}
+            setNewRecCategory={setNewRecCategory}
+            setNewRecDueDate={setNewRecDueDate}
+            setNewRecAccount={setNewRecAccount}
+            setNewRecMandatory={setNewRecMandatory}
+            setIsNewRecurringModalOpen={setIsNewRecurringModalOpen}
+            openPayRecurringModal={openPayRecurringModal}
+            openEditRecurringModal={openEditRecurringModal}
+            handleDeleteRecurring={handleDeleteRecurring}
+            handleApplyAutoForecastLimits={handleApplyAutoForecastLimits}
+            editingPlanCategory={editingPlanCategory}
+            setEditingPlanCategory={setEditingPlanCategory}
+            editingPlanValue={editingPlanValue}
+            setEditingPlanValue={setEditingPlanValue}
+            handleSaveCategoryLimit={handleSaveCategoryLimit}
+            setEditingDebtId={setEditingDebtId}
+            setNewDebtTitle={setNewDebtTitle}
+            setNewDebtInitial={setNewDebtInitial}
+            setNewDebtRemaining={setNewDebtRemaining}
+            setNewDebtPayment={setNewDebtPayment}
+            setIsNewDebtModalOpen={setIsNewDebtModalOpen}
+            openEditDebtModal={openEditDebtModal}
+            handleDeleteDebt={handleDeleteDebt}
+            openPayDebtModal={openPayDebtModal}
+          />
         )}
       </main>
 
@@ -4177,7 +2377,7 @@ export default function FamilyBudgetApp() {
         </div>
       )}
 
-      {/* Нижний навигационный бар для мобильных — жесткая 5-колоночная сетка grid-cols-5 с поддержкой safe area iOS */}
+      {/* Нижний навигационный бар для мобильных — 5-колоночная сетка с поддержкой safe area iOS */}
       <nav
         aria-label="Мобильная навигация"
         className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200 px-2 h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] grid grid-cols-5 items-center lg:hidden"
@@ -4248,6 +2448,7 @@ export default function FamilyBudgetApp() {
         initialTx={editingTransactionObj}
         presetConfig={txPresetConfig}
         currentUser={currentUser}
+        userProfiles={safeProfiles}
         isLockedType={isEditingLockedType}
         customCategories={customCategories}
         onCreateCustomCategory={handleCreateCustomCategory}
@@ -4271,6 +2472,7 @@ export default function FamilyBudgetApp() {
         goalActionDate={goalActionDate}
         setGoalActionDate={setGoalActionDate}
         currentUser={currentUser}
+        userProfiles={safeProfiles}
         onSubmit={handleContributeGoal}
       />
 
@@ -4310,6 +2512,7 @@ export default function FamilyBudgetApp() {
         newRecMandatory={newRecMandatory}
         setNewRecMandatory={setNewRecMandatory}
         customCategories={customCategories}
+        userProfiles={safeProfiles}
         onSubmit={handleCreateRecurring}
       />
 
@@ -4380,7 +2583,7 @@ export default function FamilyBudgetApp() {
         config={safeLimitConfig}
         onSaveConfig={(newConfig) => {
           setSafeLimitConfig(newConfig);
-          saveToStorage('family_budget_limit_config', newConfig);
+          saveToStorage('family_budget_limit_config', newConfig, handleStorageQuotaError);
           showToast('Горизонт безопасного лимита обновлен');
         }}
         currentSafeBalance={stats.safeBalance}

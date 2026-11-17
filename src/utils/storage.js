@@ -1,3 +1,5 @@
+export const APP_VERSION = '0.8.2';
+
 // Безопасная загрузка и сохранение в LocalStorage
 export const loadFromStorage = (key, fallback) => {
   try {
@@ -12,11 +14,14 @@ export const loadFromStorage = (key, fallback) => {
   }
 };
 
-export const saveToStorage = (key, value) => {
+export const saveToStorage = (key, value, onError = null) => {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch (err) {
     console.error(`Failed to save ${key} to localStorage:`, err);
+    if (typeof onError === 'function') onError(err, key);
+    return false;
   }
 };
 

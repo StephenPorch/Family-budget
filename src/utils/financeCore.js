@@ -38,6 +38,8 @@ export const getWalletKeyFromTx = (tx) => {
   return tx.author === 'wife' ? 'wife' : 'husband';
 };
 
+const roundCents = (val) => Math.round(((Number(val) || 0) + Number.EPSILON) * 100) / 100;
+
 // Чистая функция расчета кумулятивных балансов 3 кошельков с учетом переводов (v0.8.0)
 export const calculateWalletBalancesWithTransfers = (transactions = [], endOfPeriod = '9999-12-31') => {
   const wallets = {
@@ -74,7 +76,11 @@ export const calculateWalletBalancesWithTransfers = (transactions = [], endOfPer
 
   for (const k of ['shared', 'husband', 'wife']) {
     const w = wallets[k];
-    w.balance = w.income + w.transferIn - w.expense - w.transferOut;
+    w.income = roundCents(w.income);
+    w.expense = roundCents(w.expense);
+    w.transferIn = roundCents(w.transferIn);
+    w.transferOut = roundCents(w.transferOut);
+    w.balance = roundCents(w.income + w.transferIn - w.expense - w.transferOut);
   }
 
   return wallets;
@@ -227,21 +233,24 @@ export const calculateSafeDailyBudget = ({
   };
 };
 
+const normAccountForSig = (acc) => (!acc || acc === 'family') ? 'shared' : acc;
+
+const getTxSignature = (tx) => {
+  const fromW = tx.fromWallet || '';
+  const toW = tx.transferTo || '';
+  return `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${normAccountForSig(tx.account)}|${fromW}|${toW}`;
+};
+
 // Безопасное слияние (Merge) транзакций с фильтрацией дубликатов по ID и сигнатуре
 export const mergeTransactions = (existingTxs = [], incomingTxs = []) => {
   const existingIds = new Set(existingTxs.map((t) => String(t.id)));
-  const existingSignatures = new Set(
-    existingTxs.map(
-      (t) =>
-        `${t.date}|${t.type}|${Math.round(Number(t.amount) || 0)}|${(t.title || '').trim().toLowerCase()}|${t.account || 'family'}|${t.transferTo || ''}`
-    )
-  );
+  const existingSignatures = new Set(existingTxs.map(getTxSignature));
 
   const uniqueNew = [];
   let skippedCount = 0;
 
   for (const tx of incomingTxs) {
-    const sig = `${tx.date}|${tx.type}|${Math.round(Number(tx.amount) || 0)}|${(tx.title || '').trim().toLowerCase()}|${tx.account || 'family'}|${tx.transferTo || ''}`;
+    const sig = getTxSignature(tx);
     if (existingIds.has(String(tx.id)) || existingSignatures.has(sig)) {
       skippedCount++;
       continue;
@@ -271,22 +280,29 @@ export const calculateDebtPayoff = (debt) => {
   return { total, paid, remaining, progressPct, monthsLeft, isRegular, monthly };
 };
 
-// Сравнительный баланс и эффективность двух партнеров за месяц (с учетом переводов в семейный резерв)
+// Сравнительный баланс и эффективность двух партнеров за месяц (без двойного счета трат из пополненного резерва)
 export const calculatePartnerComparison = (transactions = [], userProfiles = {}, targetYm = getCurrentMonthPrefix()) => {
   const profiles = (userProfiles && typeof userProfiles === 'object') ? userProfiles : {};
   const p1 = profiles.husband || { name: 'Партнер 1', emoji: '🧔🏻‍♂️' };
   const p2 = profiles.wife || { name: 'Партнер 2', emoji: '👩🏼' };
 
-  let p1Income = 0;
+  let p1PersonalIncome = 0;
+  let p1SharedDirectIncome = 0;
   let p1PersonalExpense = 0;
-  let p1SharedContribution = 0;
+  let p1TransferToShared = 0;
+  let p1TransferFromShared = 0;
+  let p1SharedSpent = 0;
 
-  let p2Income = 0;
+  let p2PersonalIncome = 0;
+  let p2SharedDirectIncome = 0;
   let p2PersonalExpense = 0;
-  let p2SharedContribution = 0;
+  let p2TransferToShared = 0;
+  let p2TransferFromShared = 0;
+  let p2SharedSpent = 0;
 
   let sharedPoolExpense = 0;
   let sharedPoolIncome = 0;
+  let sharedPoolTransferOut = 0;
 
   for (const tx of transactions) {
     const ym = (tx.date || '').slice(0, 7);
@@ -298,25 +314,33 @@ export const calculatePartnerComparison = (transactions = [], userProfiles = {},
 
     if (tx.type === 'transfer') {
       const fromW = getWalletKeyFromTx(tx);
-      const toW = tx.transferTo || 'shared';
+      const toW = (tx.transferTo === 'shared' || tx.transferTo === 'husband' || tx.transferTo === 'wife')
+        ? tx.transferTo
+        : (fromW === 'shared' ? 'husband' : 'shared');
       if (fromW === 'husband' && toW === 'shared') {
-        p1SharedContribution += amt;
+        p1TransferToShared += amt;
         sharedPoolIncome += amt;
       } else if (fromW === 'wife' && toW === 'shared') {
-        p2SharedContribution += amt;
+        p2TransferToShared += amt;
         sharedPoolIncome += amt;
+      } else if (fromW === 'shared' && toW === 'husband') {
+        p1TransferFromShared += amt;
+        sharedPoolTransferOut += amt;
+      } else if (fromW === 'shared' && toW === 'wife') {
+        p2TransferFromShared += amt;
+        sharedPoolTransferOut += amt;
       }
       continue;
     }
 
     if (tx.type === 'income') {
       if (acc === 'personal') {
-        if (author === 'wife') p2Income += amt;
-        else p1Income += amt;
+        if (author === 'wife') p2PersonalIncome += amt;
+        else p1PersonalIncome += amt;
       } else {
         sharedPoolIncome += amt;
-        if (author === 'wife') p2Income += amt;
-        else p1Income += amt;
+        if (author === 'wife') p2SharedDirectIncome += amt;
+        else p1SharedDirectIncome += amt;
       }
     } else if (tx.type === 'expense') {
       if (acc === 'personal') {
@@ -324,11 +348,22 @@ export const calculatePartnerComparison = (transactions = [], userProfiles = {},
         else p1PersonalExpense += amt;
       } else {
         sharedPoolExpense += amt;
-        if (author === 'wife') p2SharedContribution += amt;
-        else p1SharedContribution += amt;
+        if (author === 'wife') p2SharedSpent += amt;
+        else p1SharedSpent += amt;
       }
     }
   }
+
+  const p1Income = p1PersonalIncome + p1SharedDirectIncome;
+  const p2Income = p2PersonalIncome + p2SharedDirectIncome;
+
+  const totalSharedInflow = p1SharedDirectIncome + p2SharedDirectIncome + p1TransferToShared + p2TransferToShared;
+  const p1SharedContribution = totalSharedInflow > 0
+    ? Math.max(0, p1SharedDirectIncome + p1TransferToShared - p1TransferFromShared)
+    : p1SharedSpent;
+  const p2SharedContribution = totalSharedInflow > 0
+    ? Math.max(0, p2SharedDirectIncome + p2TransferToShared - p2TransferFromShared)
+    : p2SharedSpent;
 
   const p1TotalOut = p1PersonalExpense + p1SharedContribution;
   const p2TotalOut = p2PersonalExpense + p2SharedContribution;
@@ -348,6 +383,7 @@ export const calculatePartnerComparison = (transactions = [], userProfiles = {},
       income: p1Income,
       personalExpense: p1PersonalExpense,
       sharedContribution: p1SharedContribution,
+      sharedSpent: p1SharedSpent,
       totalOut: p1TotalOut,
       net: p1Net,
       savingsRate: p1SavingsRate,
@@ -359,6 +395,7 @@ export const calculatePartnerComparison = (transactions = [], userProfiles = {},
       income: p2Income,
       personalExpense: p2PersonalExpense,
       sharedContribution: p2SharedContribution,
+      sharedSpent: p2SharedSpent,
       totalOut: p2TotalOut,
       net: p2Net,
       savingsRate: p2SavingsRate,
@@ -366,6 +403,7 @@ export const calculatePartnerComparison = (transactions = [], userProfiles = {},
     sharedPool: {
       totalIncome: sharedPoolIncome,
       totalExpense: sharedPoolExpense,
+      transferOut: sharedPoolTransferOut,
     },
   };
 };

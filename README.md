@@ -1,6 +1,23 @@
-# Семейный Бюджет v0.8.1
+# Семейный Бюджет v0.8.2
 
 Современное веб-приложение для совместного ведения семейного бюджета, планирования постоянных платежей, прогнозирования трат и аналитики с Personal-First архитектурой, переводами между кошельками и поддержкой PWA.
+
+## Что нового в версии v0.8.2 (Стабилизация ядра и модульная декомпозиция)
+
+### 1. Исправления бухгалтерии, экспорта и профилей
+- **Честный баланс вклада супругов (`calculatePartnerComparison`):** устранен двойной учет при оплате покупок из предварительно пополненного «Семейного резерва», добавлен корректный учет обратных переводов «Из резерва → Личный».
+- **Сохранение переводов в Excel (`.xlsx`):** межкошельковые переводы (`type: 'transfer'`) выгружаются с типом `Перевод` и маршрутом (`Откуда → Куда`) вместо искажения в `Расход`.
+- **Динамические профили в модалках:** `TransactionModal`, `GoalActionModal` и `RecurringFormModal` отображают настроенные имена и аватары партнеров без заглушек «Партнер 1/2».
+- **Поиск по сумме и защита `localStorage`:** в истории операций добавлен поиск по сумме чека; при ошибке сохранения (`QuotaExceededError`) приложение предупреждает пользователя уведомлением.
+
+### 2. Ликвидация Split-Brain и декомпозиция `App.jsx`
+- **Единый источник математических расчетов (`financeCore.js`):** `App.jsx` переведен на `calculateWalletBalancesWithTransfers`, `calculateSafeDailyBudget`, `calculateDebtPayoff`, `mergeTransactions` и `calculateHorizonDays` с флагом `waitForSalaryOnPayday`.
+- **Модульная архитектура вкладок:** монолитный `App.jsx` (4 400+ строк) разделен на [exportImport.js](src/utils/exportImport.js), [TransactionRow.jsx](src/components/TransactionRow.jsx), [DashboardTab.jsx](src/components/tabs/DashboardTab.jsx), [HistoryTab.jsx](src/components/tabs/HistoryTab.jsx), [GoalsTab.jsx](src/components/tabs/GoalsTab.jsx) и [DebtsPlanTab.jsx](src/components/tabs/DebtsPlanTab.jsx).
+
+### 3. PWA, единая версия и CI
+- **Единая константа `APP_VERSION` (`0.8.2`):** синхронизированы шапка UI, заголовки, Service Worker (`CACHE_NAME`) и выгрузки XLSX/CSV/JSON.
+- **iOS Safe Area `viewport-fit=cover`:** добавлен в `index.html` и `standalone.html` для корректной работы верхнего и нижнего отступа на iOS PWA.
+- **Обязательные тесты в CI:** `.github/workflows/deploy.yml` переведен на `npm ci` и запускает `npm test` перед деплоем.
 
 ## Что нового в версии v0.8.1 (Рефакторинг по дизайн-системе stageshow)
 
@@ -52,7 +69,7 @@
 
 ```bash
 npm install
-npm test          # Запуск 9 наборов модульных тестов и проверки целостности standalone.html
+npm test          # Запуск 10 наборов модульных тестов и проверки целостности standalone.html
 npm run sync      # Пересборка standalone.html из модульных файлов src/
 npm run dev       # Запуск dev-сервера Vite
 ```

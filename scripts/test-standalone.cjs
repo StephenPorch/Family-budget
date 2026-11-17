@@ -13,11 +13,17 @@ if (!match) {
 
 const code = match[1];
 const requiredDefinitions = [
+  'const APP_VERSION =',
   'const useFocusTrap =',
   'const useBackdropDismiss =',
   'class ErrorBoundary extends',
   'const calculateHorizonDays =',
   'const calculateWalletBalancesWithTransfers =',
+  'const buildBudgetXlsxBytes =',
+  'const DashboardTab =',
+  'const HistoryTab =',
+  'const GoalsTab =',
+  'const DebtsPlanTab =',
   'const ArrowRightLeft = createSvgIcon',
   'function FamilyBudgetApp()',
 ];

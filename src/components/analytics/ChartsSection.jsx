@@ -414,83 +414,52 @@ export const ChartsSection = React.memo(function ChartsSection({
             {partnerComparisonData ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">{partnerComparisonData.partner1.emoji}</span>
-                        <div>
-                          <span className="text-xs font-bold text-stone-900 block leading-tight">
-                            {partnerComparisonData.partner1.name}
+                  {[partnerComparisonData.partner1, partnerComparisonData.partner2].map((partner) => (
+                    <div key={partner.id} className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl">{partner.emoji}</span>
+                          <div>
+                            <span className="text-xs font-bold text-stone-900 block leading-tight">
+                              {partner.name}
+                            </span>
+                            <span className="text-[10px] text-stone-500">Личный профиль</span>
+                          </div>
+                        </div>
+                        <div className="text-right tabular-nums">
+                          <span className="text-[10px] text-stone-500 block">Свободное сальдо</span>
+                          <span className={`text-xs font-bold ${partner.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                            {partner.net >= 0 ? '+' : ''}{partner.net.toLocaleString('ru-RU')} ₽
                           </span>
-                          <span className="text-[10px] text-stone-500">Личный профиль</span>
                         </div>
                       </div>
-                      <div className="text-right tabular-nums">
-                        <span className="text-[10px] text-stone-500 block">Свободное сальдо</span>
-                        <span className={`text-xs font-bold ${partnerComparisonData.partner1.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-                          {partnerComparisonData.partner1.net >= 0 ? '+' : ''}{partnerComparisonData.partner1.net.toLocaleString('ru-RU')} ₽
-                        </span>
-                      </div>
-                    </div>
 
-                    <div className="space-y-2 text-xs tabular-nums">
-                      <div className="flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Заработано:</span>
-                        <span className="font-semibold text-emerald-700">+{partnerComparisonData.partner1.income.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Личные расходы:</span>
-                        <span className="font-semibold text-stone-800">−{partnerComparisonData.partner1.personalExpense.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Вклад в семейный бюджет:</span>
-                        <span className="font-semibold text-violet-700">−{partnerComparisonData.partner1.sharedContribution.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                      <div className="pt-1.5 border-t border-stone-200/60 flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Норма сбережений:</span>
-                        <span className="font-bold text-stone-900">{partnerComparisonData.partner1.savingsRate}% от дохода</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-stone-200/80 bg-stone-50/70 space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">{partnerComparisonData.partner2.emoji}</span>
-                        <div>
-                          <span className="text-xs font-bold text-stone-900 block leading-tight">
-                            {partnerComparisonData.partner2.name}
-                          </span>
-                          <span className="text-[10px] text-stone-500">Личный профиль</span>
+                      <div className="space-y-2 text-xs tabular-nums">
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-500 text-[11px]">Заработано:</span>
+                          <span className="font-semibold text-emerald-700">+{partner.income.toLocaleString('ru-RU')} ₽</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-500 text-[11px]">Личные расходы:</span>
+                          <span className="font-semibold text-stone-800">−{partner.personalExpense.toLocaleString('ru-RU')} ₽</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-500 text-[11px]">Вклад в семейный бюджет:</span>
+                          <span className="font-semibold text-violet-700">−{partner.sharedContribution.toLocaleString('ru-RU')} ₽</span>
+                        </div>
+                        {partner.sharedSpent > 0 && partner.sharedSpent !== partner.sharedContribution && (
+                          <div className="flex items-center justify-between text-[11px] text-stone-500">
+                            <span>Оплачено чеков из котла:</span>
+                            <span>{partner.sharedSpent.toLocaleString('ru-RU')} ₽</span>
+                          </div>
+                        )}
+                        <div className="pt-1.5 border-t border-stone-200/60 flex items-center justify-between">
+                          <span className="text-stone-500 text-[11px]">Норма сбережений:</span>
+                          <span className="font-bold text-stone-900">{partner.savingsRate}% от дохода</span>
                         </div>
                       </div>
-                      <div className="text-right tabular-nums">
-                        <span className="text-[10px] text-stone-500 block">Свободное сальдо</span>
-                        <span className={`text-xs font-bold ${partnerComparisonData.partner2.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-                          {partnerComparisonData.partner2.net >= 0 ? '+' : ''}{partnerComparisonData.partner2.net.toLocaleString('ru-RU')} ₽
-                        </span>
-                      </div>
                     </div>
-
-                    <div className="space-y-2 text-xs tabular-nums">
-                      <div className="flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Заработано:</span>
-                        <span className="font-semibold text-emerald-700">+{partnerComparisonData.partner2.income.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Личные расходы:</span>
-                        <span className="font-semibold text-stone-800">−{partnerComparisonData.partner2.personalExpense.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Вклад в семейный бюджет:</span>
-                        <span className="font-semibold text-violet-700">−{partnerComparisonData.partner2.sharedContribution.toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                      <div className="pt-1.5 border-t border-stone-200/60 flex items-center justify-between">
-                        <span className="text-stone-500 text-[11px]">Норма сбережений:</span>
-                        <span className="font-bold text-stone-900">{partnerComparisonData.partner2.savingsRate}% от дохода</span>
-                      </div>
-                    </div>
-                  </div>
+                  ))}
                 </div>
 
                 <div className="p-3 bg-stone-100/80 rounded-xl text-stone-600 text-[11px] flex items-center justify-between">

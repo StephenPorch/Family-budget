@@ -12,11 +12,17 @@ const moduleFiles = [
   'utils/xlsx.js',
   'utils/csv.js',
   'utils/financeCore.js',
+  'utils/exportImport.js',
   'hooks/useFocusTrap.js',
   'hooks/useBackdropDismiss.js',
   'components/ErrorBoundary.jsx',
+  'components/TransactionRow.jsx',
   'components/analytics/ChartsSection.jsx',
   'components/calendar/ReceiptCalendar.jsx',
+  'components/tabs/DashboardTab.jsx',
+  'components/tabs/HistoryTab.jsx',
+  'components/tabs/GoalsTab.jsx',
+  'components/tabs/DebtsPlanTab.jsx',
   'components/modals/ExportBackupModal.jsx',
   'components/modals/TransactionModal.jsx',
   'components/modals/EntityModals.jsx',
@@ -63,7 +69,7 @@ import {
   ListOrdered, Target, ArrowUpRight, ShieldCheck,
   CheckCircle2, TrendingUp, BarChart3, Clock, Lock,
   Download, Upload, FileSpreadsheet, Copy, Bell, Pin,
-  AlertTriangle, AlertCircle, ArrowRightLeft
+  AlertTriangle, AlertCircle, ArrowRightLeft, CreditCard, Users
 } from 'lucide-react';
 `;
 
@@ -79,8 +85,8 @@ const standaloneHeader = `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный Бюджет v0.8.1 (Автономная версия)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Семейный Бюджет v0.8.2 (Автономная версия)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -161,4 +167,4 @@ const bundledStandaloneBody = processedModulesForStandalone
 
 const finalStandalone = `${standaloneHeader}\n${bundledStandaloneBody}\n${standaloneFooter}`;
 fs.writeFileSync(standalonePath, finalStandalone, 'utf8');
-console.log('standalone.html v0.8.1 generated successfully! Length:', finalStandalone.length);
+console.log('standalone.html v0.8.2 generated successfully! Length:', finalStandalone.length);

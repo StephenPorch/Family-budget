@@ -6,6 +6,7 @@ async function runTests() {
   const dateUtilsUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'dateUtils.js')).href;
   const financeCoreUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'financeCore.js')).href;
   const csvUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'csv.js')).href;
+  const exportImportUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'exportImport.js')).href;
 
   const {
     normalizeImportedDate,
@@ -25,8 +26,9 @@ async function runTests() {
   } = await import(financeCoreUrl);
 
   const { parseCsvText } = await import(csvUrl);
+  const { buildBudgetXlsxSheets, buildBudgetXlsxBytes } = await import(exportImportUrl);
 
-  console.log('🧪 Running Family Budget v0.8.1 Core Unit Tests (Direct ES Module Imports)...');
+  console.log('🧪 Running Family Budget v0.8.2 Core Unit Tests (Direct ES Module Imports)...');
 
   // Test 1: Safe Daily Budget & Cash Gap Exposure (v0.7.0 Fix)
   {
@@ -241,7 +243,94 @@ async function runTests() {
     console.log('  ✅ Test 9 PASSED: Wallet transfers (⇄), partner contribution credit & payday-day awareness');
   }
 
-  console.log('🎉 All 9 test suites in unit-tests.cjs PASSED!');
+  // Test 10: No double-counting in partner comparison & transfer preservation in XLSX export (v0.8.2)
+  {
+    const txsNoDouble = [
+      { id: 'd1', date: '2026-11-05', type: 'income', amount: 120000, account: 'personal', author: 'husband', title: 'Зарплата' },
+      { id: 'd2', date: '2026-11-06', type: 'transfer', amount: 50000, fromWallet: 'husband', transferTo: 'shared', account: 'personal', author: 'husband', title: 'В резерв' },
+      { id: 'd3', date: '2026-11-07', type: 'expense', amount: 30000, account: 'shared', author: 'husband', title: 'Аренда из резерва' },
+    ];
+    const comp1 = calculatePartnerComparison(txsNoDouble, {}, '2026-11');
+    assert.strictEqual(comp1.partner1.sharedContribution, 50000);
+    assert.strictEqual(comp1.partner1.sharedSpent, 30000);
+    assert.strictEqual(comp1.partner1.net, 70000); // 120000 - 50000, no double deduction of 30000
+
+    const txsWithReturn = [
+      ...txsNoDouble,
+      { id: 'd4', date: '2026-11-08', type: 'transfer', amount: 10000, fromWallet: 'shared', transferTo: 'husband', account: 'shared', author: 'husband', title: 'Возврат из резерва' },
+    ];
+    const comp2 = calculatePartnerComparison(txsWithReturn, {}, '2026-11');
+    assert.strictEqual(comp2.partner1.sharedContribution, 40000); // 50000 - 10000
+    assert.strictEqual(comp2.sharedPool.transferOut, 10000);
+
+    const safeProfiles = {
+      husband: { name: 'Алексей', emoji: '🧑🏻‍💻' },
+      wife: { name: 'Мария', emoji: '👩🏼' },
+    };
+    const sheets = buildBudgetXlsxSheets({
+      selectedMonth: '2026-11',
+      stats: {
+        shared: { balance: 10000, monthIncome: 50000, monthExpense: 40000, consumerExpense: 30000, savedAndDebtPaid: 0 },
+        husbandPersonal: { balance: 80000, monthIncome: 130000, monthExpense: 50000 },
+        wifePersonal: { balance: 0, monthIncome: 0, monthExpense: 0 },
+        unpaidMandatoryThisMonth: 0,
+        dailyAvailable: 1000,
+        hasCashGap: false,
+        cashGapAmount: 0,
+        daysLeft: 10,
+        totalSavings: 0,
+        totalTargetSavings: 0,
+        totalDebtRemaining: 0,
+        totalDebtInitial: 0,
+      },
+      pendingBillsCount: 0,
+      transactions: txsWithReturn,
+      expenseForecastData: { rows: [] },
+      recurringPayments: [],
+      goals: [],
+      debts: [],
+      safeProfiles,
+    });
+    const txSheet = sheets.find(s => s.name === '2_Операции');
+    assert.ok(txSheet);
+    const transferRow = txSheet.rows.find(r => r[0] === 'd2');
+    assert.ok(transferRow);
+    assert.strictEqual(transferRow[3], 'Перевод');
+    assert.strictEqual(transferRow[7], 'Между счетами');
+    assert.strictEqual(transferRow[8], 'Алексей');
+    assert.strictEqual(transferRow[9], 'Алексей → Общий котел');
+
+    const xlsxBytes = buildBudgetXlsxBytes({
+      selectedMonth: '2026-11',
+      stats: {
+        shared: { balance: 10000, monthIncome: 50000, monthExpense: 40000, consumerExpense: 30000, savedAndDebtPaid: 0 },
+        husbandPersonal: { balance: 80000, monthIncome: 130000, monthExpense: 50000 },
+        wifePersonal: { balance: 0, monthIncome: 0, monthExpense: 0 },
+        unpaidMandatoryThisMonth: 0,
+        dailyAvailable: 1000,
+        hasCashGap: false,
+        cashGapAmount: 0,
+        daysLeft: 10,
+        totalSavings: 0,
+        totalTargetSavings: 0,
+        totalDebtRemaining: 0,
+        totalDebtInitial: 0,
+      },
+      pendingBillsCount: 0,
+      transactions: txsWithReturn,
+      expenseForecastData: { rows: [] },
+      recurringPayments: [],
+      goals: [],
+      debts: [],
+      safeProfiles,
+    });
+    assert.ok(xlsxBytes instanceof Uint8Array && xlsxBytes.length > 500);
+    assert.strictEqual(xlsxBytes[0], 0x50); // 'P'
+    assert.strictEqual(xlsxBytes[1], 0x4b); // 'K'
+    console.log('  ✅ Test 10 PASSED: Partner no-double-counting & transfer serialization in XLSX');
+  }
+
+  console.log('🎉 All 10 test suites in unit-tests.cjs PASSED!');
 }
 
 runTests().catch((err) => {
